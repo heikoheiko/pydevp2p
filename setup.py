@@ -3,7 +3,7 @@
 
 
 try:
-    from setuptools import setup
+    from setuptools import setup, find_packages
 except ImportError:
     from distutils.core import setup
 
@@ -22,12 +22,11 @@ class PyTest(TestCommand):
 readme = open('README.rst').read()
 history = open('HISTORY.rst').read().replace('.. :changelog:', '')
 
-requirements = [
-    # TODO: put package requirements here
-]
+requirements = [x.strip() for x in open('requirements.txt')]
 
 test_requirements = [
-    'pytest'
+    'pytest',
+    'coverage'
 ]
 
 setup(
@@ -38,11 +37,8 @@ setup(
     author='HeikoHeiko',
     author_email='heiko@ethdev.com',
     url='https://github.com/heikoheiko/pydevp2p',
-    packages=[
-        'devp2p'
-    ],
-    package_dir={'devp2p':
-                 'devp2p'},
+    packages=find_packages(exclude='devp2p.tests'),
+    package_dir={'devp2p': 'devp2p'},
     include_package_data=True,
     install_requires=requirements,
     license="BSD",
