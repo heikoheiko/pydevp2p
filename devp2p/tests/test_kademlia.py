@@ -4,6 +4,7 @@ import random
 from pyethereum.rlp import int_to_big_endian
 import pytest
 import math
+import json
 
 random.seed(42)
 
@@ -76,7 +77,7 @@ def test_wellformedness():
     """
     pass
 
-if __name__ == '__main__':
+def show_buckets():
     routing = routing_table(1000)
     for i, b in enumerate(routing.buckets):
         d = b.depth
@@ -84,3 +85,29 @@ if __name__ == '__main__':
         print 'bucket:%d, num nodes:%d depth:%d' % \
         (i, len(b), kademlia.k_id_size - int(math.log(b.start ^ routing.node.id, 2)))
     print 'routing.node is in bucket', routing.buckets.index(routing.bucket_by_node(routing.node))
+
+
+def create_json_bucket_test():
+    doc = \
+    """
+    'node_ids': hex encoded ids in order in which they were added to the routing table
+    'buckets' : buckets sorted asc by range
+    """
+    num_nodes = 100
+    data = dict(node_ids=[], buckets=[], comment=doc)
+    node = random_node()
+    routing = kademlia.RoutingTable(node)
+    data['local_node_id'] = hex(node.id)
+    for r in [random_node() for i in range(num_nodes)]:
+        routing.add_node(r)
+        data['node_ids'].append(hex(r.id))
+
+    for b in routing.buckets:
+        jb = dict(start=hex(b.start), end=hex(b.end), node_ids=[hex(n.id) for n in b.nodes])
+        data['buckets'].append(jb)
+
+    return json.dumps(data, indent=2)
+
+
+if __name__ == '__main__':
+    print create_json_bucket_test()
