@@ -12,7 +12,7 @@ pydevp2p
         :target: https://pypi.python.org/pypi/pydevp2p
 
 
-Python implementation of the Ethereum P@P2P stack
+Python implementation of the Ethereum P2P stack
 
 * Free software: BSD license
 * Documentation: https://pydevp2p.readthedocs.org.
