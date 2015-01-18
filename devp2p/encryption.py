@@ -2,16 +2,16 @@
 
 from crypto import privtopub, mk_privkey
 from crypto import sha3
-from crypto import ECC
-from crypto import encrypt
+from crypto import ECCx
 from crypto import ecdsa_recover
 import pyelliptic
 from pyethereum.rlp import big_endian_to_int as idec  # integer decode
 from pyethereum.rlp import int_to_big_endian as ienc  # integer encode
 
-def sxor(s1,s2):
+
+def sxor(s1, s2):
     "string xor"
-    return ''.join(chr(ord(a) ^ ord(b)) for a,b in zip(s1,s2))
+    return ''.join(chr(ord(a) ^ ord(b)) for a, b in zip(s1, s2))
 
 
 class Transport(object):
@@ -29,8 +29,8 @@ class Transport(object):
         self.sender.receive(data)
 
 
-
 class Peer(object):
+
     "Peer carries the session with a connected remote node"
 
     def __init__(self, local_node, transport=None, receive_cb=None):
@@ -78,10 +78,6 @@ class RemoteNode(object):
         self.token = None
 
 
-
-
-
-
 class RLPxSession(object):
 
     ephemeral_ecc = None
@@ -124,14 +120,13 @@ class RLPxSession(object):
         # header
         assert len(header) == 16  # zero padded to 16 bytes
         header_ciphertext = aes(header)
-        assert len(header_ciphertext) <=  32  # must not be larger than mac
+        assert len(header_ciphertext) <= 32  # must not be larger than mac
         # FIXME mac-secret!?
         header_mac = mac(sxor(aes(mac('')), header_ciphertext))[-16:]
         # frame
         frame_ciphertext = aes(frame)
         frame_mac = self.egress_mac.update(frame_ciphertext)
         return header_ciphertext + header_mac + frame_ciphertext + frame_mac
-
 
     def decrypt(self, data):
         assert self.is_ready is True
@@ -154,11 +149,6 @@ class RLPxSession(object):
         frame_mac = self.egress_mac.update(frame_ciphertext)
         data = aes(data[32:])
 
-
-
-
-
-
     def send_authentication(self, remote_node):
         """
         1. initiator generates ecdhe-random and nonce and creates auth
@@ -175,9 +165,9 @@ class RLPxSession(object):
         """
         self.ephemeral_ecc = ECCx()  # FIXME, add seed
         ecdhe_pubkey = self.ephemeral_ecc.get_pubkey()
-        assert len(ecdhe_pubkey) == 512/8
+        assert len(ecdhe_pubkey) == 512 / 8
         token = remote_node.token
-        nonce = ienc(random.randint(0, 2**256-1))
+        nonce = ienc(random.randint(0, 2 ** 256 - 1))
         assert len(nonce) == 32
         token_or_nonce = token or nonce
         signature = self.node.sign(ienc(token_or_nonce))
@@ -186,7 +176,6 @@ class RLPxSession(object):
         auth_message = crypto.encrypt(payload, remote.pubkey)
         self.peer.send(auth_message)
         self._authentication_sent = True
-
 
     def receive_authentication(self, other, ciphertext):
         """
@@ -207,7 +196,7 @@ class RLPxSession(object):
         assert len(data) == 64 + 1 + 64 + 32
         signature = data[:65]
         assert data[65] == '0x80'
-        remote_ecdhe_pubkey = data[65:65+64]
+        remote_ecdhe_pubkey = data[65:65 + 64]
         token_or_nonce = idec(data[-32:])
 
         # verify signature
@@ -257,10 +246,10 @@ class RLPxSession(object):
         self.is_ready = True
 
 
-
 def main():
     alice_privkey = mk_privkey('secret1')
     alice_pubkey = privtopub(alice_privkey)
+    print len(alice_pubkey), type(alice_pubkey)
     alice = LocalNode(alice_pubkey, alice_privkey)
 
     bob_privkey = mk_privkey('secret2')
@@ -272,8 +261,8 @@ def main():
 
     # alice knows bob and connects
     node_bob = RemoteNode(bob_pubkey)
-    peer_alice = Peer(alice, transport=None, _receivecb)
-    peer_bob = Peer(bob, transport=None, _receivecb)
+    peer_alice = Peer(alice, transport=None, receive_cb=_receivecb)
+    peer_bob = Peer(bob, transport=None, receive_cb=_receivecb)
     peer_alice.transport = Transport(sender=peer_alice, receiver=peer_bob)
     peer_bob.transport = Transport(sender=peer_bob, receiver=peer_alice)
 
@@ -282,4 +271,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
