@@ -7,6 +7,17 @@ try:
 except ImportError:
     from distutils.core import setup
 
+from setuptools.command.test import test as TestCommand
+class PyTest(TestCommand):
+    def finalize_options(self):
+        TestCommand.finalize_options(self)
+        self.test_args = []
+        self.test_suite = True
+    def run_tests(self):
+        #import here, cause outside the eggs aren't loaded
+        import pytest
+        pytest.main(self.test_args)
+
 
 readme = open('README.rst').read()
 history = open('HISTORY.rst').read().replace('.. :changelog:', '')
@@ -16,7 +27,7 @@ requirements = [
 ]
 
 test_requirements = [
-    # TODO: put package test requirements here
+    'pytest'
 ]
 
 setup(
@@ -24,11 +35,11 @@ setup(
     version='0.0.1',
     description='Python implementation of the Ethereum P2P stack',
     long_description=readme + '\n\n' + history,
-    author='Heiko Heiko',
+    author='HeikoHeiko',
     author_email='heiko@ethdev.com',
     url='https://github.com/heikoheiko/pydevp2p',
     packages=[
-        'devp2p',
+        'devp2p'
     ],
     package_dir={'devp2p':
                  'devp2p'},
@@ -48,6 +59,6 @@ setup(
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
     ],
-    test_suite='tests',
+    cmdclass = {'test': PyTest},
     tests_require=test_requirements
 )
