@@ -63,27 +63,10 @@ class ECCx(pyelliptic.ECC):
 
     def sign(self, data):
         """
-        https://bitcoin.stackexchange.com/questions/12554/why-the-signature-is-always-65-13232-bytes-long
-        DER-encoded signature has the following form:
-
-        0x30: a header byte indicating a compound structure.
-        A 1-byte length descriptor for all what follows.
-        0x02: a header byte indicating an integer.
-        A 1-byte length descriptor for the R value
-        The R coordinate, as a big-endian integer.
-        0x02: a header byte indicating an integer.
-        A 1-byte length descriptor for the S value.
-        The S coordinate, as a big-endian integer.
-
-        Where initial 0x00 bytes for R and S are not allowed, except when their first byte would
-        otherwise be above 0x7F (in which case a single 0x00 in front is required).
-        Also note that inside transaction signatures, an extra hashtype byte follows the
-        actual signature data.
+        pyelliptic.ECC.sign is DER-encoded
+        https://bitcoin.stackexchange.com/questions/12554
         """
-        # der_signature = pyelliptic.ECC.sign(self, data)
-        import base64
-        signature_b64 = bitcoin.ecdsa_sign(data, self.raw_privkey)
-        signature = base64.b64decode(signature_b64)
+        signature = ecdsa_sign(data, self.raw_privkey)
         assert len(signature) == 65
         return signature
 
