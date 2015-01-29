@@ -3,6 +3,7 @@ from gevent import Greenlet
 
 
 class BaseService(Greenlet):
+
     """
     service instances are added to the application under
     app.services.<service_name>

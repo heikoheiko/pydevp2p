@@ -30,9 +30,8 @@ k_idle_bucket_refresh_interval = 3600
 k_id_size = 512
 k_max_node_id = 2 ** k_id_size - 1
 
-from pyethereum import rlp
+import rlp
 import operator
-from collections import OrderedDict
 import time
 
 

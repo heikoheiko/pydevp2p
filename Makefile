@@ -32,7 +32,7 @@ clean-test:
 	rm -fr htmlcov/
 
 lint:
-	flake8 pydevp2p tests
+	flake8 devp2p tests --ignore=E501
 
 test:
 	python setup.py test

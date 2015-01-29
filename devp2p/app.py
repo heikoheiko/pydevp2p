@@ -1,4 +1,4 @@
-from collections import UserDict
+from UserDict import UserDict
 from service import BaseService
 from slogging import get_logger
 log = get_logger('app')
@@ -44,7 +44,7 @@ if __name__ == '__main__':
     import gevent
     from peermanager import PeerManager
     from jsonrpc import JSONRPCServer
-
+    from discovery import NodeDiscovery
     import slogging
     log = slogging.get_logger('app')
 
@@ -71,6 +71,7 @@ listen_port = 30302
     # register services
     PeerManager.register_with_app(app)
     JSONRPCServer.register_with_app(app)
+    NodeDiscovery.register_with_app(app)
 
     # start app
     app.start()

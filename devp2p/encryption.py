@@ -5,8 +5,8 @@ from crypto import sha3
 from crypto import ECCx
 from crypto import ecdsa_recover
 import pyelliptic
-from pyethereum.rlp import big_endian_to_int as idec  # integer decode
-from pyethereum.rlp import int_to_big_endian as ienc  # integer encode
+from utils import idec  # integer decode
+from utils import ienc  # integer encode
 
 
 def sxor(s1, s2):

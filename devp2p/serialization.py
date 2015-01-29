@@ -1,10 +1,8 @@
-
-import sys
-from pyethereum import rlp
-from pyethereum.utils import big_endian_to_int as idec
-from pyethereum.utils import int_to_big_endian4 as ienc4
-from pyethereum.utils import recursive_int_to_big_endian
-from pyethereum.slogging import get_logger
+import rlp
+from utils import idec
+from utils import ienc4
+from utils import recursive_int_to_big_endian
+from slogging import get_logger
 log = get_logger('serialization')
 
 

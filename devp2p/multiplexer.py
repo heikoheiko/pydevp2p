@@ -1,6 +1,6 @@
 from gevent.queue import Queue
 from collections import OrderedDict
-from pyethereum import rlp
+import rlp
 import struct
 
 """
@@ -15,8 +15,8 @@ Improvements:
 """
 
 
-
 class Frame(object):
+
     """
     When sending a packet over RLPx, the packet will be framed.
     The frame provides information about the size of the packet and the packet's
@@ -68,17 +68,17 @@ class Frame(object):
                 self.is_chunked_0 = True
                 self.total_payload_size = len(payload)
             # chunk payload
-            self.payload = payload[:window_size-fs]
+            self.payload = payload[:window_size - fs]
             remain = payload[len(self.payload):]
             assert len(remain) + len(self.payload) == len(payload)
             assert self.frame_size() <= window_size
-            Frame(protocol_id, cmd_id, remain, sequence_id+1, window_size,
+            Frame(protocol_id, cmd_id, remain, sequence_id + 1, window_size,
                   is_chunked_n=True,
                   frames=self.frames)
 
     def __repr__(self):
         return '<Frame(%s, len=%d sid=%r)>' % \
-                (self._frame_type(), self.frame_size(), self.sequence_id)
+            (self._frame_type(), self.frame_size(), self.sequence_id)
 
     def _frame_type(self):
         return 'normal' * self.is_normal or 'chunked_0' * self.is_chunked_0 or 'chunked_n'
@@ -116,7 +116,7 @@ class Frame(object):
             l.append(i16(self.sequence_id))
             l.append(struct.pack('>I', self.total_payload_size))
         elif self.sequence_id:  # normal, chunked_n
-                l.append(i16(self.sequence_id))
+            l.append(i16(self.sequence_id))
         header_data = rlp.encode(l)
         frame_size = self.frame_size()
         assert frame_size < 256**3
@@ -156,6 +156,7 @@ class Frame(object):
 
 
 class Packet(object):
+
     """
     Packets are emitted and received by subprotocols
     """
@@ -181,6 +182,7 @@ class Packet(object):
 
 
 class Multiplexer(object):
+
     """
     Multiplexing of protocols is performed via dynamic framing and fair queueing.
     Dequeuing packets is performed in a cycle which dequeues one or more packets
@@ -206,7 +208,7 @@ class Multiplexer(object):
 
     """
 
-    max_window_size = 8*1024
+    max_window_size = 8 * 1024
     max_priority_frame_size = 1024
 
     def __init__(self):
@@ -214,7 +216,6 @@ class Multiplexer(object):
         self.sequence_id = 0
         self.last_protocol = None  # last protocol, which sent data to the buffer
         self.chunked_buffers = dict()  # decode: next_expected_sequence_id > buffer
-
 
     @property
     def num_active_protocols(self):
@@ -268,7 +269,6 @@ class Multiplexer(object):
         else:
             for f in frames:
                 queues['chunked'].put(f)
-
 
     def pop_frames_for_protocol(self, protocol_id):
         """
@@ -404,7 +404,7 @@ class Multiplexer(object):
             cmd_id = rlp.big_endian_to_int(rlp.decode(buffer[body_offset]))
             packet = Packet(protocol_id=protocol_id,
                             cmd_id=cmd_id,
-                            payload=rlp.decode(buffer[body_offset+1:]))
+                            payload=rlp.decode(buffer[body_offset + 1:]))
             if chunked_0:
                 garbage_collect(protocol_id)
                 assert sequence_id
@@ -425,4 +425,3 @@ class Multiplexer(object):
                 break
             last_remain = remain
         return packets, remain
-

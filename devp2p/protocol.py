@@ -1,9 +1,11 @@
+import sys
 import time
 import gevent
 import struct
 import json
+from crypto import sha3
 from gevent import Greenlet
-from pyethereum.utils import big_endian_to_int as idec
+from utils import idec
 import serialization
 import slogging
 log = slogging.get_logger('protocol.p2p').warn
@@ -27,6 +29,7 @@ def encode_packet(cmd_id, data):
 
 
 class BaseProtocol(object):
+
     """
     Component which translates between
         messages from the p2p wire
@@ -38,7 +41,7 @@ class BaseProtocol(object):
 
     """
     name = ''
-    cmd_map = {} # cmd_name: cmd_id
+    cmd_map = {}  # cmd_name: cmd_id
 
     def __init__(self, peer, cmd_offset=0):
         self.peer = peer
@@ -124,7 +127,7 @@ class ConnectionMonitor(Greenlet):
         if not self.samples:
             return None
         num_samples = min(num_samples or self.max_samples, len(self.samples))
-        return sum(self.samples[:num_samples])/num_samples
+        return sum(self.samples[:num_samples]) / num_samples
 
     def _run(self):
         log('p2p.peer.monitor.started', monitor=self)
@@ -220,13 +223,11 @@ class P2PProtocol(BaseProtocol):
         log('p2p.receive_disconnect', peer=self.peer, reason=reason)
         self.peer.stop()
 
-
     def send_getpeers(self):
         return self._send_packet('getpeers')
 
     def receive_getpeers(self):
         self.send_peers()
-
 
     def send_peers(self):
         '''
@@ -242,8 +243,7 @@ class P2PProtocol(BaseProtocol):
         return self._send_packet('peers', data)
 
     def receive_peers(self, data):
-        pass # FIXME
-
+        pass  # FIXME
 
     def send_hello(self):
         """
@@ -266,9 +266,8 @@ class P2PProtocol(BaseProtocol):
             capabilities,
             self.config.getint('network', 'listen_port'),
             self.nodeid
-            ]
+        ]
         self._send_packet('hello', data)
-
 
     def _recv_hello(self, data):
         log('p2p.receive_hello', peer=self.peer)
@@ -315,4 +314,3 @@ class P2PProtocol(BaseProtocol):
         # tell peermanager about spoken protocols
         self.peer.peermanager.on_hello_received(self, data)
         self.connection_monitor.start()
-
