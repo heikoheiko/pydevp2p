@@ -1,54 +1,89 @@
 # -*- coding: utf-8 -*-
 """
 https://github.com/ethereum/go-ethereum/wiki/RLPx-----Node-Discovery-Protocol
-https://github.com/gevent/gevent/blob/master/examples/udp_client.py
-https://github.com/gevent/gevent/blob/master/examples/udp_server.py
-
-Fragen:
-
-    - where to access node priv/pubkey?
-        - privkey in config() for now
-        - app.keys_service
-
-    app.keys_service
-        .pubkey
-        .sign
-        .decrypt
-
-
-    - how to test?
-
-    - addresses
-
-    - upnp
-
 
 """
 import time
 import gevent
-import struct
-import json
-import crypto
+import gevent.socket
+from devp2p import crypto
 import rlp
-from gevent import Greenlet
+from devp2p import utils
+from devp2p import kademlia
 from service import BaseService
 import slogging
 from gevent.server import DatagramServer
 log = slogging.get_logger('discovery')
 
 
-class InvalidSignature(Exception):
+class DefectiveMessage(Exception):
+    pass
+
+
+class InvalidSignature(DefectiveMessage):
+    pass
+
+
+class PacketExpired(DefectiveMessage):
     pass
 
 
 class Address(object):
-    # https://github.com/haypo/python-ipy
+
+    """
+    Extend later, but make sure we deal with objects
+    Multiaddress
+    https://github.com/haypo/python-ipy
+    """
 
     def __init__(self, protocol, ip, port):
         self.protocol = protocol
         self.ip = ip
         self.port = port
         self.version = 6 if ':' in ip else 4
+
+    def ip_port(self):
+        return self.ip, self.port
+
+    def __eq__(self, other):
+        return self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return 'Address(%s/%s/%s)' % (self.protocol, self.ip, self.port)
+
+    def to_dict(self):
+        return dict(ip=self.ip, protocol=self.protocol, port=self.port)
+
+
+class Node(kademlia.Node):
+
+    def __init__(self, pubkey, address):
+        assert len(pubkey) == 64 and isinstance(pubkey, str)
+        assert address is None or isinstance(address, Address)
+        self.pubkey = pubkey
+        self.address = address
+        self.id = rlp.big_endian_to_int(pubkey)
+        self.reputation = 0
+        self._expect_pong_until = 0
+
+    def __repr__(self):
+        return '<Node(%s)>' % self.pubkey[:4].encode('hex')
+
+    def set_expect_pong(self, ts=None):
+        self._expect_pong_until = ts or time.time() + .750  # 750 ms
+
+    def is_expecting_pong(self):
+        return time.time() < self._expect_pong_until
+
+
+class DiscoveryProtocolTransport(object):
+
+    def send(self, address, message):
+        assert isinstance(address, Address)
+
+    def receive(self, address, message):
+        assert isinstance(address, Address)
+
 
 """
 # Node Discovery Protocol
@@ -105,14 +140,32 @@ class DiscoveryProtocol(object):
     The receiver should discard any packet whose `Expiration` value is in the past.
     """
 
+    expiration = 5  # let messages expire after N secondes
+
     cmd_id_map = dict(ping=1, pong=2, find_node=3, neighbours=4)
+    rev_cmd_id_map = dict((v, k) for k, v in cmd_id_map.items())
 
     def __init__(self, app, transport):
+        self.app = app
         self.transport = transport
-        self.pubkey = None
+        self.privkey = app.config.get('p2p', 'privkey_hex').decode('hex')
+        self.pubkey = crypto.privtopub(self.privkey)
+        self.nodes = dict()   # nodeid->Node,  fixme should be loaded
+        self.routing = kademlia.RoutingTable(kademlia.Node(self.pubkey))
+
+    def get_node(self, nodeid, address=None):
+        "return node or create new, update address if supplied"
+        assert len(nodeid) == 512 / 8
+        if nodeid not in self.nodes:
+            self.nodes[nodeid] = Node(nodeid, address)
+        node = self.nodes[nodeid]
+        if address:
+            assert isinstance(address, Address)
+            node.address = address
+        return node
 
     def sign(self, mdc):
-        return mdc
+        return crypto.sign(mdc, self.privkey)
 
     def mdc(self, cmd_id, encoded_data, pubkey=None):
         """Ensures integrity of packet, `SHA3(sender-pubkey || type || data)`"""
@@ -145,10 +198,11 @@ class DiscoveryProtocol(object):
         If the MDC values do not match, the packet can be dropped.
         """
         assert cmd_id in self.cmd_id_map.values()
-        assert isinstance(payload, (str, list))
+        assert isinstance(payload, list)
 
         cmd_id = chr(cmd_id)
-        encoded_data = rlp.encode(payload)
+        expiration = utils.ienc4((time.time() + self.expiration))
+        encoded_data = rlp.encode(payload + [expiration])
         mdc = self.mdc(cmd_id, encoded_data)
         assert len(mdc) == 32
         signature = self.sign(mdc)
@@ -159,20 +213,26 @@ class DiscoveryProtocol(object):
         signature = message[:65]
         mdc = message[65:97]
         remote_pubkey = crypto.ecdsa_recover(mdc, signature)
-        assert len(remote_pubkey) == 512
-        if not crypto.ecdsa_verify(mdc, signature, remote_pubkey):
+        assert len(remote_pubkey) == 512 / 8
+        if not crypto.verify(remote_pubkey, signature, mdc):
             raise InvalidSignature()
         cmd_id = ord(message[97])
         assert cmd_id in self.cmd_id_map.values()
-        data = rlp.decode(message[98:])
-        return remote_pubkey, cmd_id, data
+        payload = rlp.decode(message[98:])
+        assert isinstance(payload, list)
+        expiration = utils.idec(payload.pop())
+        if time.time() > expiration:
+            raise PacketExpired()
+        return remote_pubkey, cmd_id, payload, mdc
 
     def receive(self, address, message):
-        remote_pubkey, cmd_id, data = self.unpack(message)
-        cmd = getattr(self, 'recv_%s' + self.cmd_id_map[cmd_id])
-        cmd(address, remote_pubkey, data)
+        assert isinstance(address, Address)
+        remote_pubkey, cmd_id, payload, mdc = self.unpack(message)
+        cmd = getattr(self, 'recv_' + self.rev_cmd_id_map[cmd_id])
+        nodeid = remote_pubkey
+        cmd(nodeid, payload, mdc)
 
-    def send_ping(self):
+    def send_ping(self, node):
         """
         ### Ping (type 0x01)
 
@@ -187,10 +247,28 @@ class DiscoveryProtocol(object):
         `IP`      | (length 4 or 16) IP address on which the node is listening
         `Port`    | listening port of the node
         """
+        log.debug('sending ping', remoteid=node)
+        payload = [self.app.config.get('p2p', 'listen_host'),
+                   utils.ienc(self.app.config.getint('p2p', 'listen_port'))]
+        message = self.pack(self.cmd_id_map['ping'], payload)
 
-    def recv_ping(self, data):
+        node.set_expect_pong()
+        assert node.is_expecting_pong()
+        log.debug('set node to expect pong', remodeid=node)
+        self.transport.send(node.address, message)
 
-    def pong(self):
+    def recv_ping(self, nodeid, payload, mcd):
+        # update ip, port in node table
+        ip, port = payload
+        port = utils.idec(port)
+
+        node = self.get_node(nodeid, Address('udp', ip, port))
+        log.debug('received ping', remoteid=node)
+
+        # reply with a pong
+        self.send_pong(node, mcd)
+
+    def send_pong(self, node, token):
         """
         ### Pong (type 0x02)
 
@@ -202,8 +280,24 @@ class DiscoveryProtocol(object):
         --------------|-----------------------------------------------
         `Reply Token` | content of the MDC element of the Ping packet
         """
+        log.debug('sending pong', remoteid=node)
+        message = self.pack(self.cmd_id_map['pong'], [token])
+        self.transport.send(node.address, message)
 
-    def find_node(self):
+    def recv_pong(self, nodeid,  payload, mcd):
+        # check if we are expecting a pong
+        if nodeid in self.nodes:
+            node = self.get_node(nodeid)
+            if node.is_expecting_pong():
+                log.debug('received expected pong', remoteid=node)
+                # update data
+                return
+            else:
+                log.debug('received unexpected pong', remoteid=node)
+        else:
+            log.debug('received unexpected pong from unkown node')
+
+    def send_find_node(self, node):
         """
         ### Find Node (type 0x03)
 
@@ -218,7 +312,10 @@ class DiscoveryProtocol(object):
         `Target` | is the target ID
         """
 
-    def neighbours(self):
+    def recv_find_node(self, nodeid, payload, mcd):
+        pass
+
+    def send_neighbours(self, node):
         """
         ### Neighbors (type 0x04)
 
@@ -236,36 +333,59 @@ class DiscoveryProtocol(object):
         `Port`    | listening port of the node
         """
 
+    def recv_neighbours(self, nodeid, payload, mcd):
+        pass
 
-class NodeDiscovery(BaseService):
+
+class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
 
     """
+    Persist the list of known nodes with their reputation
     """
 
-    name = 'NodeDiscovery'
+    name = 'discovery'
 
     def __init__(self, app):
         BaseService.__init__(self, app)
         log.info('NodeDiscovery init')
-        pubkey = app.config.pubkey  # FIXME
+        self.protocol = DiscoveryProtocol(app=self.app, transport=self)
 
-    def create_packet(self, cmd_id, payload):
-        pass
+    @property
+    def address(self):
+        return Address('udp',
+                       self.app.config.get('p2p', 'listen_host'),
+                       self.app.config.getint('p2p', 'listen_port'))
 
-    def _handle_packet(self, data, address):
-        log.debug('handling packet', adress=address[0])
-        self.socket.sendto('Received %s bytes' % len(data), address)
+    def send(self, address, message):
+        assert isinstance(address, Address)
+        sock = gevent.socket.socket(type=gevent.socket.SOCK_DGRAM)
+        # sock.bind(('0.0.0.0', self.address.port))  # send from our recv port
+        sock.connect(address.ip_port())
+        log.debug('sending', size=len(message), to=address)
+        sock.send(message)
+
+    def receive(self, address, message):
+        assert isinstance(address, Address)
+        self.protocol.receive(address, message)
+
+    def _handle_packet(self, message, ip_port):
+        log.debug('handling packet', adress=ip_port, size=len(message))
+        assert len(ip_port) == 2
+        address = Address(protocol='udp', ip=ip_port[0], port=ip_port[1])
+        self.receive(address, message)
 
     def start(self):
         log.info('starting discovery')
         # start a listening server
+        host = self.app.config.get('p2p', 'listen_host')
         port = self.app.config.getint('p2p', 'listen_port')
         log.info('starting listener', port=port)
-        self.server = EchoServer((host, port), handle=self._handle_packet)
+        self.server = DatagramServer((host, port), handle=self._handle_packet)
         self.server.start()
         super(NodeDiscovery, self).start()
 
     def _run(self):
+        log.debug('_run called')
         evt = gevent.event.Event()
         evt.wait()
 
@@ -274,16 +394,5 @@ class NodeDiscovery(BaseService):
         self.server.stop()
 
 
-class EchoServer(DatagramServer):
-
-    def handle(self, data, address):
-        print('%s: got %r' % (address[0], data))
-        self.socket.sendto('Received %s bytes' % len(data), address)
-
 if __name__ == '__main__':
-    print('Receiving datagrams on :9000')
-    EchoServer(':9000').serve_forever()
-
-
-if __name__ == '__main__':
-    main()
+    pass
