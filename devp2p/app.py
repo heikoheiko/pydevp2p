@@ -1,4 +1,4 @@
-from UserDict import UserDict
+from UserDict import IterableUserDict
 from service import BaseService
 from slogging import get_logger
 log = get_logger('app')
@@ -8,7 +8,7 @@ class BaseApp(object):
 
     def __init__(self, config):
         self.config = config
-        self.services = UserDict()
+        self.services = IterableUserDict()
 
     def register_service(self, service):
         """
@@ -23,15 +23,15 @@ class BaseApp(object):
 
     def deregister_service(self, service):
         assert isinstance(service, BaseService)
-        self._services.remove(service)
+        self.services.remove(service)
         delattr(self.services, service.name)
 
     def start(self):
-        for service in self._services:
+        for service in self.services.values():
             service.start()
 
     def stop(self):
-        for service in self._services:
+        for service in self.services.values():
             service.stop()
 
 
@@ -56,6 +56,7 @@ bootstrap_host = localhost
 bootstrap_port = 30303
 listen_host = 127.0.0.1
 listen_port = 30302
+privkey_hex = 65462b0520ef7d3df61b9992ed3bea0c56ead753be7c8b3614e0ce01e4cac41b
     """
     config = ConfigParser.ConfigParser()
     if len(sys.argv) == 1:
@@ -78,6 +79,7 @@ listen_port = 30302
 
     # wait for interupt
     evt = gevent.event.Event()
+    # gevent.signal(signal.SIGQUIT, gevent.kill) ## killall pattern
     gevent.signal(signal.SIGQUIT, evt.set)
     gevent.signal(signal.SIGTERM, evt.set)
     gevent.signal(signal.SIGINT, evt.set)
