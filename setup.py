@@ -8,13 +8,17 @@ except ImportError:
     from distutils.core import setup
 
 from setuptools.command.test import test as TestCommand
+
+
 class PyTest(TestCommand):
+
     def finalize_options(self):
         TestCommand.finalize_options(self)
         self.test_args = []
         self.test_suite = True
+
     def run_tests(self):
-        #import here, cause outside the eggs aren't loaded
+        # import here, cause outside the eggs aren't loaded
         import pytest
         pytest.main(self.test_args)
 
@@ -26,6 +30,7 @@ requirements = [x.strip() for x in open('requirements.txt')]
 
 test_requirements = [
     'pytest',
+    'pytest-capturelog',
     'coverage'
 ]
 
@@ -55,6 +60,6 @@ setup(
         'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
     ],
-    cmdclass = {'test': PyTest},
+    cmdclass={'test': PyTest},
     tests_require=test_requirements
 )
