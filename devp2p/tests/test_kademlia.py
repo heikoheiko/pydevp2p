@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 from devp2p import kademlia
 import random
-from pyethereum.rlp import int_to_big_endian
-import pytest
+from rlp import int_to_big_endian
 import math
 import json
 
@@ -15,7 +14,7 @@ def random_pubkey():
 
 
 def random_node():
-    return kademlia.Node(random_pubkey(), multiaddr='/')
+    return kademlia.Node(random_pubkey())
 
 
 def routing_table(num_nodes=1000):
@@ -61,6 +60,7 @@ def test_neighbours():
     assert node_a in routing.buckets_by_distance(node_a)[0]
     assert node_a == routing.neighbours(node_b)[0]
 
+
 def test_cache():
     routing = routing_table(10000)
     bucket = routing.buckets[0]
@@ -77,19 +77,20 @@ def test_wellformedness():
     """
     pass
 
+
 def show_buckets():
     routing = routing_table(1000)
     for i, b in enumerate(routing.buckets):
         d = b.depth
         print '  ' * d,
         print 'bucket:%d, num nodes:%d depth:%d' % \
-        (i, len(b), kademlia.k_id_size - int(math.log(b.start ^ routing.node.id, 2)))
+            (i, len(b), kademlia.k_id_size - int(math.log(b.start ^ routing.node.id, 2)))
     print 'routing.node is in bucket', routing.buckets.index(routing.bucket_by_node(routing.node))
 
 
 def create_json_bucket_test():
     doc = \
-    """
+        """
     'node_ids': hex encoded ids in order in which they were added to the routing table
     'buckets' : buckets sorted asc by range
     """

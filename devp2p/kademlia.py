@@ -19,7 +19,6 @@ and protocol described by Maymounkov and Mazieres.
 How many peers to connect to?
 
 160/8?
-
 """
 k_b = 8  # 8 bits per hop
 
@@ -37,17 +36,16 @@ import time
 
 class Node(object):
 
-    def __init__(self, pubkey, multiaddr):
+    def __init__(self, pubkey):
         assert len(pubkey) == 64 and isinstance(pubkey, str)
         self.pubkey = pubkey
         self.id = rlp.big_endian_to_int(pubkey)
-        self.multiaddr = multiaddr  # https://github.com/jbenet/multiaddr
 
     def distance(self, other):
         return self.id ^ other.id
 
     def __eq__(self, other):
-        return self.multiaddr == other.multiaddr and self.pubkey == other.pubkey
+        return self.pubkey == other.pubkey
 
     def __repr__(self):
         return 'Node(%s)' % self.pubkey.encode('hex')[:8]
@@ -231,6 +229,7 @@ class RoutingTable(object):
         return node in self.bucket_by_node(node)
 
     def neighbours(self, node, k=k_bucket_size):
+        # FIXME, sorting by bucket.midpoint does not work
         nodes = []
         for bucket in self.buckets_by_distance(node):
             for n in bucket.nodes_by_distance(node):
