@@ -20,9 +20,16 @@ def random_node():
 def routing_table(num_nodes=1000):
     node = random_node()
     routing = kademlia.RoutingTable(node)
-    for r in [random_node() for i in range(num_nodes)]:
-        routing.add_node(r)
+    for i in range(num_nodes):
+        routing.add_node(random_node())
+        assert len(routing.buckets) <= i + 2
+    assert len(routing.buckets) <= 512
+    assert i == num_nodes - 1
     return routing
+
+
+def test_routing_table():
+    routing_table(1000)
 
 
 def test_node():
@@ -32,6 +39,52 @@ def test_node():
     l.remove(node)
     assert node not in l
     assert not l
+
+
+def test_split():
+    node = random_node()
+    routing = kademlia.RoutingTable(node)
+    assert len(routing.buckets) == 1
+
+    # create very close node
+    for i in range(kademlia.k_bucket_size):
+        node = kademlia.Node(int_to_big_endian(node.id + 1))
+        assert routing.buckets[0].in_range(node)
+        routing.add_node(node)
+        assert len(routing.buckets) == 1
+
+    assert len(routing.buckets[0]) == kademlia.k_bucket_size
+
+    node = kademlia.Node(int_to_big_endian(node.id + 1))
+    assert routing.buckets[0].in_range(node)
+    routing.add_node(node)
+    assert len(routing.buckets[0]) <= kademlia.k_bucket_size
+    assert len(routing.buckets) <= 512
+
+
+def test_split2():
+    routing = routing_table(10000)
+    # get a full bucket
+    full_buckets = [b for b in routing.buckets if b.is_full]
+    split_buckets = [b for b in routing.buckets if b.should_split]
+
+    # not every full bucket needs to be split
+    assert len(split_buckets) < len(full_buckets)
+    # print 's/f/buckets', len(split_buckets), len(full_buckets)
+
+    assert set(split_buckets).issubset(set(full_buckets))
+
+    assert full_buckets
+    bucket = full_buckets[0]
+    assert not bucket.should_split
+    assert len(bucket) == kademlia.k_bucket_size
+    node = kademlia.Node.from_id(bucket.start + 1)  # should not split
+    assert node not in bucket
+    assert bucket.in_range(node)
+    assert bucket == routing.bucket_by_node(node)
+
+    r = bucket.add_node(node)
+    assert r
 
 
 def test_non_overlap():
@@ -46,29 +99,33 @@ def test_non_overlap():
     assert b.end < 2 ** kademlia.k_id_size
 
 
+def test_full_range():
+    # buckets must cover whole range
+    def t(routing):
+        max_id = 0
+        for i, b in enumerate(routing.buckets):
+            assert b.start == max_id
+            assert b.end > max_id
+            max_id = b.end + 1
+        assert b.end == 2 ** kademlia.k_id_size - 1
+    for num_nodes in (1, 16, 17, 1000):
+        t(routing_table(num_nodes))
+
+
 def test_neighbours():
     routing = routing_table(1000)
-    node = random_node()
-    nearest_bucket = routing.buckets_by_distance(node)[0]
-    assert nearest_bucket.in_range(node)
 
-    # change node id, to something in this bucket.
-    node_a = nearest_bucket.nodes[0]
-    node_b = random_node()
-    node_b.id = node_a.id + 1
-    assert nearest_bucket.in_range(node_b)
-    assert node_a in routing.buckets_by_distance(node_a)[0]
-    assert node_a == routing.neighbours(node_b)[0]
-
-
-def test_cache():
-    routing = routing_table(10000)
-    bucket = routing.buckets[0]
-    assert len(bucket) == kademlia.k_bucket_size
-    r = bucket.replacement_cache[-1]
-    n = bucket.tail
-    bucket.remove_node(n)
-    assert bucket.tail == r
+    for i in range(100):  # also passed w/ 10k
+        node = random_node()
+        nearest_bucket = routing.buckets_by_distance(node)[0]
+        if not nearest_bucket.nodes:
+            continue
+        # change nodeid, to something in this bucket.
+        node_a = nearest_bucket.nodes[0]
+        node_b = kademlia.Node.from_id(node_a.id + 1)
+        assert node_a == routing.neighbours(node_b)[0]
+        node_b.id = node_a.id - 1
+        assert node_a == routing.neighbours(node_b)[0]
 
 
 def test_wellformedness():
@@ -78,14 +135,18 @@ def test_wellformedness():
     pass
 
 
+#  ###################
+
+
 def show_buckets():
-    routing = routing_table(1000)
+    routing = routing_table(10000)
     for i, b in enumerate(routing.buckets):
         d = b.depth
         print '  ' * d,
         print 'bucket:%d, num nodes:%d depth:%d' % \
-            (i, len(b), kademlia.k_id_size - int(math.log(b.start ^ routing.node.id, 2)))
-    print 'routing.node is in bucket', routing.buckets.index(routing.bucket_by_node(routing.node))
+            (i, len(b), kademlia.k_id_size - int(math.log(b.start ^ routing.this_node.id, 2)))
+    print 'routing.node is in bucket', \
+        routing.buckets.index(routing.bucket_by_node(routing.this_node))
 
 
 def create_json_bucket_test():
@@ -111,4 +172,5 @@ def create_json_bucket_test():
 
 
 if __name__ == '__main__':
-    print create_json_bucket_test()
+    # print create_json_bucket_test()
+    print show_buckets()

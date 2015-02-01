@@ -11,8 +11,10 @@ import rlp
 from devp2p import utils
 from devp2p import kademlia
 from service import BaseService
-import slogging
 from gevent.server import DatagramServer
+import slogging
+import ipaddress
+
 log = slogging.get_logger('discovery')
 
 
@@ -36,44 +38,43 @@ class Address(object):
     https://github.com/haypo/python-ipy
     """
 
-    def __init__(self, protocol, ip, port):
-        self.protocol = protocol
-        self.ip = ip
-        self.port = port
-        self.version = 6 if ':' in ip else 4
+    def __init__(self, ip, port, from_binary=False):
+        if from_binary:
+            self._ip = ipaddress.ip_address(ip)
+            self.port = utils.idec(port)
+        else:
+            self._ip = ipaddress.ip_address(unicode(ip))
+            self.port = port
 
-    def ip_port(self):
-        return self.ip, self.port
+    @property
+    def ip(self):
+        return str(self._ip)
 
     def __eq__(self, other):
-        return self.__dict__ == other.__dict__
+        return self.to_dict() == other.to_dict()
 
     def __repr__(self):
-        return 'Address(%s/%s/%s)' % (self.protocol, self.ip, self.port)
+        return 'Address(%s:%s)' % (self.ip, self.port)
 
     def to_dict(self):
-        return dict(ip=self.ip, protocol=self.protocol, port=self.port)
+        return dict(ip=self.ip, port=self.port)
+
+    def to_binary(self):
+        return self._ip.packed, utils.ienc(self.port)
+
+    @classmethod
+    def from_binary(self, ip, port):
+        return Address(ip, port, from_binary=True)
 
 
 class Node(kademlia.Node):
 
-    def __init__(self, pubkey, address):
-        assert len(pubkey) == 64 and isinstance(pubkey, str)
+    def __init__(self, pubkey, address=None):
+        kademlia.Node.__init__(self, pubkey)
         assert address is None or isinstance(address, Address)
-        self.pubkey = pubkey
         self.address = address
-        self.id = rlp.big_endian_to_int(pubkey)
         self.reputation = 0
-        self._expect_pong_until = 0
-
-    def __repr__(self):
-        return '<Node(%s)>' % self.pubkey[:4].encode('hex')
-
-    def set_expect_pong(self, ts=None):
-        self._expect_pong_until = ts or time.time() + .750  # 750 ms
-
-    def is_expecting_pong(self):
-        return time.time() < self._expect_pong_until
+        self.rlpx_version = 0
 
 
 class DiscoveryProtocolTransport(object):
@@ -84,6 +85,9 @@ class DiscoveryProtocolTransport(object):
     def receive(self, address, message):
         assert isinstance(address, Address)
 
+
+class KademliaProtocolAdapter(kademlia.KademliaProtocol):
+    pass
 
 """
 # Node Discovery Protocol
@@ -131,7 +135,7 @@ All requests time out after are 300ms. Requests are not re-sent.
 """
 
 
-class DiscoveryProtocol(object):
+class DiscoveryProtocol(kademlia.WireInterface):
 
     """
     ## Packet Data
@@ -145,13 +149,21 @@ class DiscoveryProtocol(object):
     cmd_id_map = dict(ping=1, pong=2, find_node=3, neighbours=4)
     rev_cmd_id_map = dict((v, k) for k, v in cmd_id_map.items())
 
+    encoders = dict(version=chr,
+                    cmd_id=chr,
+                    expiration=utils.ienc4)
+
+    decoders = dict(version=ord,
+                    cmd_id=ord,
+                    expiration=utils.idec)
+
     def __init__(self, app, transport):
         self.app = app
         self.transport = transport
         self.privkey = app.config.get('p2p', 'privkey_hex').decode('hex')
         self.pubkey = crypto.privtopub(self.privkey)
         self.nodes = dict()   # nodeid->Node,  fixme should be loaded
-        self.routing = kademlia.RoutingTable(kademlia.Node(self.pubkey))
+        self.kademlia = KademliaProtocolAdapter(Node(self.pubkey), wire=self)
 
     def get_node(self, nodeid, address=None):
         "return node or create new, update address if supplied"
@@ -200,8 +212,8 @@ class DiscoveryProtocol(object):
         assert cmd_id in self.cmd_id_map.values()
         assert isinstance(payload, list)
 
-        cmd_id = chr(cmd_id)
-        expiration = utils.ienc4((time.time() + self.expiration))
+        cmd_id = self.encoders['cmd_id'](cmd_id)
+        expiration = self.encoders['expiration'](int(time.time() + self.expiration))
         encoded_data = rlp.encode(payload + [expiration])
         mdc = self.mdc(cmd_id, encoded_data)
         assert len(mdc) == 32
@@ -216,11 +228,11 @@ class DiscoveryProtocol(object):
         assert len(remote_pubkey) == 512 / 8
         if not crypto.verify(remote_pubkey, signature, mdc):
             raise InvalidSignature()
-        cmd_id = ord(message[97])
+        cmd_id = self.decoders['cmd_id'](message[97])
         assert cmd_id in self.cmd_id_map.values()
         payload = rlp.decode(message[98:])
         assert isinstance(payload, list)
-        expiration = utils.idec(payload.pop())
+        expiration = self.decoders['expiration'](payload.pop())
         if time.time() > expiration:
             raise PacketExpired()
         return remote_pubkey, cmd_id, payload, mdc
@@ -248,25 +260,20 @@ class DiscoveryProtocol(object):
         `Port`    | listening port of the node
         """
         log.debug('sending ping', remoteid=node)
-        payload = [self.app.config.get('p2p', 'listen_host'),
-                   utils.ienc(self.app.config.getint('p2p', 'listen_port'))]
+        ip = self.app.config.get('p2p', 'listen_host')
+        port = self.app.config.getint('p2p', 'listen_port')
+        payload = list(Address(ip, port).to_binary())
         message = self.pack(self.cmd_id_map['ping'], payload)
-
-        node.set_expect_pong()
-        assert node.is_expecting_pong()
-        log.debug('set node to expect pong', remodeid=node)
         self.transport.send(node.address, message)
+        return message[65:97]  # return the MCD to identify pongs
 
     def recv_ping(self, nodeid, payload, mcd):
         # update ip, port in node table
         ip, port = payload
-        port = utils.idec(port)
-
-        node = self.get_node(nodeid, Address('udp', ip, port))
+        address = Address.from_binary(ip, port)
+        node = self.get_node(nodeid, address)
         log.debug('received ping', remoteid=node)
-
-        # reply with a pong
-        self.send_pong(node, mcd)
+        self.kademlia.recv_ping(node, id=mcd)
 
     def send_pong(self, node, token):
         """
@@ -285,19 +292,13 @@ class DiscoveryProtocol(object):
         self.transport.send(node.address, message)
 
     def recv_pong(self, nodeid,  payload, mcd):
-        # check if we are expecting a pong
         if nodeid in self.nodes:
             node = self.get_node(nodeid)
-            if node.is_expecting_pong():
-                log.debug('received expected pong', remoteid=node)
-                # update data
-                return
-            else:
-                log.debug('received unexpected pong', remoteid=node)
+            self.kademlia.recv_pong(node, mcd)
         else:
             log.debug('received unexpected pong from unkown node')
 
-    def send_find_node(self, node):
+    def send_find_node(self, node, target_node_id):
         """
         ### Find Node (type 0x03)
 
@@ -311,11 +312,19 @@ class DiscoveryProtocol(object):
         ---------|--------------------
         `Target` | is the target ID
         """
+        assert isinstance(target_node_id, str)
+        assert len(target_node_id) == 64
+        log.debug('sending find_node', remoteid=node, targetid=target_node_id)
+        message = self.pack(self.cmd_id_map['find_node'], [target_node_id])
+        self.transport.send(node.address, message)
 
     def recv_find_node(self, nodeid, payload, mcd):
-        pass
+        node = self.get_node(nodeid)
+        log.debug('received find_node', remoteid=node)
+        target = payload[0]
+        self.kademlia.find_node(node, target)
 
-    def send_neighbours(self, node):
+    def send_neighbours(self, node, neighbours):
         """
         ### Neighbors (type 0x04)
 
@@ -334,7 +343,20 @@ class DiscoveryProtocol(object):
         """
 
     def recv_neighbours(self, nodeid, payload, mcd):
-        pass
+        node = self.get_node(nodeid)
+        neighbours = payload[0]
+        assert isinstance(neighbours, list)
+        log.debug('received neigbours', remoteid=node, count=len(neighbours))
+
+        # decode neighbours and add to nodes
+        for i, (nodeid, version, ip, port) in enumerate(neighbours):
+            node = self.get_node(nodeid)
+            node.rlpx_version = self.decoders['version'](version)
+            if not node.address:  # update if unknown
+                node.address = Address.from_binary(ip, port)
+            neighbours[i] = node
+
+        self.kademlia.recv_neighbours(node, neighbours)
 
 
 class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
@@ -352,15 +374,14 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
 
     @property
     def address(self):
-        return Address('udp',
-                       self.app.config.get('p2p', 'listen_host'),
+        return Address(self.app.config.get('p2p', 'listen_host'),
                        self.app.config.getint('p2p', 'listen_port'))
 
     def send(self, address, message):
         assert isinstance(address, Address)
         sock = gevent.socket.socket(type=gevent.socket.SOCK_DGRAM)
         # sock.bind(('0.0.0.0', self.address.port))  # send from our recv port
-        sock.connect(address.ip_port())
+        sock.connect((address.ip, address.port))
         log.debug('sending', size=len(message), to=address)
         sock.send(message)
 
@@ -369,9 +390,9 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
         self.protocol.receive(address, message)
 
     def _handle_packet(self, message, ip_port):
-        log.debug('handling packet', adress=ip_port, size=len(message))
+        log.debug('handling packet', address=ip_port, size=len(message))
         assert len(ip_port) == 2
-        address = Address(protocol='udp', ip=ip_port[0], port=ip_port[1])
+        address = Address(ip=ip_port[0], port=ip_port[1])
         self.receive(address, message)
 
     def start(self):

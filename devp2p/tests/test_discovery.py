@@ -4,6 +4,35 @@ from devp2p import crypto
 from devp2p.app import BaseApp
 import gevent
 
+###############################
+
+
+def test_address():
+    Address = discovery.Address
+
+    ipv4 = '127.98.19.21'
+    ipv6 = '5aef:2b::8'
+    port = 1
+
+    a4 = Address(ipv4, port)
+    aa4 = Address(ipv4, port)
+    assert a4 == aa4
+    a6 = Address(ipv6, port)
+    aa6 = Address(ipv6, port)
+    assert a6 == aa6
+
+    b_a4 = a4.to_binary()
+    assert a4 == Address.from_binary(*b_a4)
+
+    b_a6 = a6.to_binary()
+    assert a6 == Address.from_binary(*b_a6)
+    assert len(b_a6[0]) == 16
+    assert len(b_a4[0]) == 4
+    assert len(b_a6[1]) == 1
+    assert len(b_a4[1]) == 1
+
+
+#############################
 
 class AppMock(object):
     pass
@@ -14,7 +43,7 @@ class NodeDiscoveryMock(object):
     messages = []  # [(to_address, from_address, message), ...] shared between all instances
 
     def __init__(self, host, port, seed):
-        self.address = discovery.Address('udp', host, port)
+        self.address = discovery.Address(host, port)
 
         config = ConfigParser.ConfigParser()
         config.add_section('p2p')
@@ -62,7 +91,7 @@ def test_ping_pong():
     bob = NodeDiscoveryMock(host='127.0.0.2', port=2, seed='bob')
 
     bob_node = alice.protocol.get_node(bob.protocol.pubkey, bob.address)
-    alice.protocol.send_ping(bob_node)
+    alice.protocol.kademlia.ping(bob_node)
     assert len(NodeDiscoveryMock.messages) == 1
     # inspect message in queue
     msg = NodeDiscoveryMock.messages[0][2]
@@ -98,7 +127,5 @@ def test_ping_pong_udp():
 
     bob_node = alice_discovery.protocol.get_node(bob_discovery.protocol.pubkey,
                                                  bob_discovery.address)
-    alice_discovery.protocol.send_ping(bob_node)
-    print 'waiting'
+    alice_discovery.protocol.kademlia.ping(bob_node)
     gevent.sleep(0.1)
-    print 'finished'
