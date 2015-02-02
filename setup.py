@@ -31,7 +31,8 @@ requirements = [x.strip() for x in open('requirements.txt')]
 test_requirements = [
     'pytest',
     'pytest-capturelog',
-    'coverage'
+    'coverage',
+    'tox'
 ]
 
 setup(
