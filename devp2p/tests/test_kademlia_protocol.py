@@ -32,6 +32,15 @@ class WireMock(kademlia.WireInterface):
                 del self.messages[i]
                 return x[1:]
 
+    def process(self, kademlia_protocols):
+        proto_by_node = dict((p.this_node, p) for p in kademlia_protocols)
+        while self.messages:
+            msg = self.messages.pop(0)
+            proto = proto_by_node[msg[0]]
+            cmd = 'recv_' + msg[1]
+            getattr(proto, cmd)(msg[0], *msg[2:])
+        assert not self.messages
+
 
 def random_pubkey():
     pk = int_to_big_endian(random.getrandbits(kademlia.k_id_size))
@@ -314,3 +323,38 @@ def test_eviction_node_split():
 
     # eviction_candidate is around and was unchanged
     assert eviction_candidate == bucket.head
+
+
+def test_ping_adds_sender():
+    wire = WireMock()
+    p = kademlia.KademliaProtocol(random_node(), wire)
+    assert len(p.routing) == 0
+    n = random_node()
+    p.recv_ping(n, 'some id')
+    assert len(p.routing) == 1
+    n = random_node()
+    p.recv_ping(n, 'some id2')
+    assert len(p.routing) == 2
+
+
+def test_many():
+    num_nodes = 5
+    wire = WireMock()
+    protos = []
+    for i in range(num_nodes):
+        protos.append(kademlia.KademliaProtocol(random_node(), wire))
+    bootstrap = protos[0]
+    for p in protos:
+        p.ping(bootstrap.this_node)
+    wire.process(protos)
+
+    # for p in protos:
+    #     p.bootstrap([bootstrap.this_node])
+    # wire.process(protos)
+
+    # for p in protos:
+    #     p.find_node(p.this_node.id)
+    # wire.process(protos)
+
+    for i, p in enumerate(protos):
+        print i, len(p.routing)

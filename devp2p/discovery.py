@@ -163,17 +163,21 @@ class DiscoveryProtocol(kademlia.WireInterface):
         self.privkey = app.config.get('p2p', 'privkey_hex').decode('hex')
         self.pubkey = crypto.privtopub(self.privkey)
         self.nodes = dict()   # nodeid->Node,  fixme should be loaded
-        self.kademlia = KademliaProtocolAdapter(Node(self.pubkey), wire=self)
+        this_node = Node(self.pubkey, self.transport.address)
+        self.kademlia = KademliaProtocolAdapter(this_node, wire=self)
 
     def get_node(self, nodeid, address=None):
         "return node or create new, update address if supplied"
+        assert isinstance(nodeid, str)
         assert len(nodeid) == 512 / 8
+        assert address or (nodeid in self.nodes)
         if nodeid not in self.nodes:
             self.nodes[nodeid] = Node(nodeid, address)
         node = self.nodes[nodeid]
         if address:
             assert isinstance(address, Address)
             node.address = address
+        assert node.address
         return node
 
     def sign(self, mdc):
@@ -242,7 +246,14 @@ class DiscoveryProtocol(kademlia.WireInterface):
         remote_pubkey, cmd_id, payload, mdc = self.unpack(message)
         cmd = getattr(self, 'recv_' + self.rev_cmd_id_map[cmd_id])
         nodeid = remote_pubkey
+        if nodeid not in self.nodes:  # set intermediary address
+            self.get_node(nodeid, address)
         cmd(nodeid, payload, mdc)
+
+    def send(self, node, message):
+        assert node.address
+
+        self.transport.send(node.address, message)
 
     def send_ping(self, node):
         """
@@ -264,11 +275,14 @@ class DiscoveryProtocol(kademlia.WireInterface):
         port = self.app.config.getint('p2p', 'listen_port')
         payload = list(Address(ip, port).to_binary())
         message = self.pack(self.cmd_id_map['ping'], payload)
-        self.transport.send(node.address, message)
+        self.send(node, message)
         return message[65:97]  # return the MCD to identify pongs
 
     def recv_ping(self, nodeid, payload, mcd):
-        # update ip, port in node table
+        """
+        update ip, port in node table
+        Addresses can only be learned by ping messages
+        """
         ip, port = payload
         address = Address.from_binary(ip, port)
         node = self.get_node(nodeid, address)
@@ -289,7 +303,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         """
         log.debug('sending pong', remoteid=node)
         message = self.pack(self.cmd_id_map['pong'], [token])
-        self.transport.send(node.address, message)
+        self.send(node, message)
 
     def recv_pong(self, nodeid,  payload, mcd):
         if nodeid in self.nodes:
@@ -314,15 +328,15 @@ class DiscoveryProtocol(kademlia.WireInterface):
         """
         assert isinstance(target_node_id, str)
         assert len(target_node_id) == 64
-        log.debug('sending find_node', remoteid=node, targetid=target_node_id)
+        log.debug('sending find_node', remoteid=node)
         message = self.pack(self.cmd_id_map['find_node'], [target_node_id])
-        self.transport.send(node.address, message)
+        self.send(node, message)
 
     def recv_find_node(self, nodeid, payload, mcd):
         node = self.get_node(nodeid)
         log.debug('received find_node', remoteid=node)
         target = payload[0]
-        self.kademlia.find_node(node, target)
+        self.kademlia.recv_find_node(node, target)
 
     def send_neighbours(self, node, neighbours):
         """
@@ -341,6 +355,15 @@ class DiscoveryProtocol(kademlia.WireInterface):
         `IP`      | (length 4 or 16) IP address on which the node is listening
         `Port`    | listening port of the node
         """
+        assert isinstance(neighbours, list)
+        assert not neighbours or isinstance(neighbours[0], Node)
+        nodes = []
+        for n in neighbours:
+            l = [n.pubkey, self.encoders['version'](n.rlpx_version)]
+            l += list(n.address.to_binary())
+            nodes.append(l)
+        message = self.pack(self.cmd_id_map['neighbours'], [nodes])
+        self.send(node, message)
 
     def recv_neighbours(self, nodeid, payload, mcd):
         node = self.get_node(nodeid)
@@ -350,12 +373,13 @@ class DiscoveryProtocol(kademlia.WireInterface):
 
         # decode neighbours and add to nodes
         for i, (nodeid, version, ip, port) in enumerate(neighbours):
-            node = self.get_node(nodeid)
-            node.rlpx_version = self.decoders['version'](version)
-            if not node.address:  # update if unknown
-                node.address = Address.from_binary(ip, port)
+            if nodeid not in self.nodes:
+                address = Address.from_binary(ip, port)
+                node = self.get_node(nodeid, address)
+                node.rlpx_version = self.decoders['version'](version)
+            else:
+                self.get_node(nodeid)
             neighbours[i] = node
-
         self.kademlia.recv_neighbours(node, neighbours)
 
 

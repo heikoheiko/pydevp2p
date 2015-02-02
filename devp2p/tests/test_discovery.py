@@ -129,3 +129,42 @@ def test_ping_pong_udp():
                                                  bob_discovery.address)
     alice_discovery.protocol.kademlia.ping(bob_node)
     gevent.sleep(0.1)
+    bob_app.stop()
+    alice_app.stop()
+
+
+def test_bootstrap_udp():
+    """
+    startup num_apps udp server and node applications
+    """
+    num_apps = 10
+    apps = []
+    for i in range(num_apps):
+        app = get_app(30002 + i, 'app%d' % i)
+        app.start()
+        apps.append(app)
+
+    def kademlia(i):
+        return apps[i].services.discovery.protocol.kademlia
+
+    boot_node = kademlia(0).this_node
+    assert boot_node.address
+
+    for i, app in enumerate(apps):
+        kademlia(i).ping(boot_node)
+
+    for i, app in enumerate(apps):
+        kademlia(i).bootstrap([boot_node])
+    total_0 = sum(len(kademlia(i).routing) for i, app in enumerate(apps))
+
+    for i, app in enumerate(apps):
+        kademlia(i).bootstrap([boot_node])
+    total_1 = sum(len(kademlia(i).routing) for i, app in enumerate(apps))
+
+    gevent.sleep(0.1)
+
+    for app in apps:
+        app.stop()
+
+    print('total entries round #0: {0}'.format(total_0))
+    print('total entries round #1: {0}'.format(total_1))

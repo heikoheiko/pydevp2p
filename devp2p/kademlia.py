@@ -238,6 +238,14 @@ class RoutingTable(object):
     def __contains__(self, node):
         return node in self.bucket_by_node(node)
 
+    def __len__(self):
+        return sum(len(b) for b in self.buckets)
+
+    def __iter__(self):
+        for b in self.buckets:
+            for n in b.nodes:
+                yield n
+
     def neighbours(self, node, k=k_bucket_size):
         """
         sorting by bucket.midpoint does not work in edge cases
@@ -288,6 +296,7 @@ class KademliaProtocol(object):
         assert isinstance(nodes, list)
         for node in nodes:
             self.routing.add_node(node)
+            self.ping(node)
         self.find_node(self.this_node.id)
 
     def update(self, node, pingid=None):
@@ -316,6 +325,14 @@ class KademliaProtocol(object):
         """
         assert isinstance(node, Node)
         log.debug('in update', remoteid=node)
+
+        if node == self.this_node:
+            log.debug('node is', remoteid=node)
+            return
+
+        if pingid and pingid not in self._expected_pongs:
+            log.debug('unexpected pong', remoteid=node)
+            return
 
         # check for timed out pings and eventually evict them
         for _pingid, (timeout, _node, replacement) in self._expected_pongs.items():
@@ -381,7 +398,7 @@ class KademliaProtocol(object):
         self.wire.send_pong(node, id)
 
     def recv_pong(self, node, pingid):
-        log.debug('recv pong', remoteid=node, pingid=pingid)
+        log.debug('recv pong', remoteid=node, pingid=pingid.encode('hex')[:4])
         self.update(node, pingid)
 
     def _query_neighbours(self, nodeid):
@@ -395,13 +412,14 @@ class KademliaProtocol(object):
         self._query_neighbours(nodeid)
         # FIXME, should we return the closest node
 
-    def recv_neighbours(self, neighbours):
+    def recv_neighbours(self, node, neighbours):
         """
         if one of the neighbours is closer than the closest known neighbour
             if not timed out
                 query closest node for neighbours
         add all nodes to the list
         """
+        log.debug('recv neighbours', remoteid=node, num=len(neighbours))
         assert isinstance(neighbours, list)
         # we don't map requests to responses, thus forwarding to all FIXME
         for nodeid, timeout in self._find_requests.items():
@@ -416,6 +434,10 @@ class KademliaProtocol(object):
         for node in neighbours:
             self.ping(node)
 
-    def recv_find_node(self, nodeid):
-        assert len(nodeid) == 512 / 8
-        self.wire.send_neighbours(self.routing.neighbours(Node.from_id(nodeid)))
+    def recv_find_node(self, node, targetid):
+        assert isinstance(node, Node)
+        assert len(targetid) == 512 / 8
+        assert isinstance(targetid, str)
+        found = self.routing.neighbours(Node(targetid))
+        log.debug('recv find_node', remoteid=node, found=len(found))
+        self.wire.send_neighbours(node, found)
