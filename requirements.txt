@@ -1,3 +1,5 @@
+pyelliptic
+rlp
 wheel
 pyethereum
 gevent
