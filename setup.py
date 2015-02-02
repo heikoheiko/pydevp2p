@@ -28,12 +28,7 @@ history = open('HISTORY.rst').read().replace('.. :changelog:', '')
 
 requirements = [x.strip() for x in open('requirements.txt')]
 
-test_requirements = [
-    'pytest',
-    'pytest-capturelog',
-    'coverage',
-    'tox'
-]
+test_requirements = []  # added to requirements. travis doesn't seem to care
 
 setup(
     name='devp2p',

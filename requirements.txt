@@ -6,3 +6,7 @@ tinyrpc
 pysha3
 bitcoin
 ipaddress
+pytest
+pytest-capturelog
+coverage
+tox
