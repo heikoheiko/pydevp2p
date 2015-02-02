@@ -80,6 +80,8 @@ def test_setup():
     # lookup self
     proto.bootstrap(nodes=[other.this_node])
     msg = wire.poll(other.this_node)
+    assert msg[0] == 'ping'
+    msg = wire.poll(other.this_node)
     assert msg == ('find_node', proto.routing.this_node.pubkey)
     assert wire.poll(other.this_node) is None
     assert wire.messages == []
@@ -87,7 +89,7 @@ def test_setup():
     # respond with neighbours
     closest = other.neighbours(kademlia.Node(msg[1]))
     assert len(closest) == kademlia.k_bucket_size
-    proto.recv_neighbours(closest)
+    proto.recv_neighbours(random_node(), closest)
 
     # expect another lookup
     msg = wire.poll(closest[0])
@@ -110,6 +112,8 @@ def test_find_node_timeout():
     # lookup self
     proto.bootstrap(nodes=[other.this_node])
     msg = wire.poll(other.this_node)
+    assert msg[0] == 'ping'
+    msg = wire.poll(other.this_node)
     assert msg == ('find_node', proto.routing.this_node.pubkey)
     assert wire.poll(other.this_node) is None
     assert wire.messages == []
@@ -120,7 +124,7 @@ def test_find_node_timeout():
     # respond with neighbours
     closest = other.neighbours(kademlia.Node(msg[1]))
     assert len(closest) == kademlia.k_bucket_size
-    proto.recv_neighbours(closest)
+    proto.recv_neighbours(random_node(), closest)
 
     # expect pings, but no other lookup
     msg = wire.poll(closest[0])
