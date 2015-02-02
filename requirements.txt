@@ -1,7 +1,6 @@
 pyelliptic
 rlp
 wheel
-pyethereum
 gevent
 tinyrpc
 pysha3
