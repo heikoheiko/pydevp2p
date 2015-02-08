@@ -9,22 +9,30 @@ random.seed(42)
 
 class WireMock(kademlia.WireInterface):
 
-    def __init__(self):
-        self.messages = []
+    messages = []  # global messages
+
+    def __init__(self, sender):
+        assert isinstance(sender, kademlia.Node)
+        self.sender = sender
+        assert not self.messages
+
+    def empty(self):
+        while self.messages:
+            self.messages.pop()
 
     def send_ping(self, node):
         ping_id = hex(random.randint(0, 2**256))[-32:]
-        self.messages.append((node, 'ping', ping_id))
+        self.messages.append((node, 'ping', self.sender, ping_id))
         return ping_id
 
     def send_pong(self, node, ping_id):
-        self.messages.append((node, 'pong', ping_id))
+        self.messages.append((node, 'pong', self.sender, ping_id))
 
-    def send_find_node(self, node, nodeid):
-        self.messages.append((node, 'find_node', nodeid))
+    def send_find_node(self,  node, nodeid):
+        self.messages.append((node, 'find_node', self.sender, nodeid))
 
     def send_neighbours(self, node, neighbours):
-        self.messages.append((node, 'neighbours', neighbours))
+        self.messages.append((node, 'neighbours', self.sender, neighbours))
 
     def poll(self, node):
         for i, x in enumerate(self.messages):
@@ -32,13 +40,22 @@ class WireMock(kademlia.WireInterface):
                 del self.messages[i]
                 return x[1:]
 
-    def process(self, kademlia_protocols):
+    def process(self, kademlia_protocols, steps=0):
+        """
+        process messages until none are left
+        or if process steps messages if steps >0
+        """
+        i = 0
         proto_by_node = dict((p.this_node, p) for p in kademlia_protocols)
         while self.messages:
             msg = self.messages.pop(0)
-            proto = proto_by_node[msg[0]]
+            assert isinstance(msg[2], kademlia.Node)
+            target = proto_by_node[msg[0]]
             cmd = 'recv_' + msg[1]
-            getattr(proto, cmd)(msg[0], *msg[2:])
+            getattr(target, cmd)(*msg[2:])
+            i += 1
+            if steps and i == steps:
+                return  # messages may be left
         assert not self.messages
 
 
@@ -62,10 +79,9 @@ def routing_table(num_nodes=1000):
     return routing
 
 
-def protocol():
+def get_wired_protocol():
     this_node = random_node()
-    wire = WireMock()
-    return kademlia.KademliaProtocol(this_node, wire)
+    return kademlia.KademliaProtocol(this_node, WireMock(this_node))
 
 
 def test_setup():
@@ -73,7 +89,7 @@ def test_setup():
     nodes connect to any peer and do a lookup for them selfs
     """
 
-    proto = protocol()
+    proto = get_wired_protocol()
     wire = proto.wire
     other = routing_table()
 
@@ -82,18 +98,18 @@ def test_setup():
     msg = wire.poll(other.this_node)
     assert msg[0] == 'ping'
     msg = wire.poll(other.this_node)
-    assert msg == ('find_node', proto.routing.this_node.pubkey)
+    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
     assert wire.poll(other.this_node) is None
     assert wire.messages == []
 
     # respond with neighbours
-    closest = other.neighbours(kademlia.Node(msg[1]))
+    closest = other.neighbours(kademlia.Node(msg[2]))
     assert len(closest) == kademlia.k_bucket_size
     proto.recv_neighbours(random_node(), closest)
 
     # expect another lookup
     msg = wire.poll(closest[0])
-    assert msg == ('find_node', proto.routing.this_node.pubkey)
+    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
 
     # and pings for all nodes
     for node in closest:
@@ -105,16 +121,16 @@ def test_setup():
 
 
 def test_find_node_timeout():
-    proto = protocol()
-    wire = proto.wire
+    proto = get_wired_protocol()
     other = routing_table()
+    wire = proto.wire
 
     # lookup self
     proto.bootstrap(nodes=[other.this_node])
     msg = wire.poll(other.this_node)
     assert msg[0] == 'ping'
     msg = wire.poll(other.this_node)
-    assert msg == ('find_node', proto.routing.this_node.pubkey)
+    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
     assert wire.poll(other.this_node) is None
     assert wire.messages == []
 
@@ -122,7 +138,7 @@ def test_find_node_timeout():
     time.sleep(kademlia.k_request_timeout)
 
     # respond with neighbours
-    closest = other.neighbours(kademlia.Node(msg[1]))
+    closest = other.neighbours(kademlia.Node(msg[2]))
     assert len(closest) == kademlia.k_bucket_size
     proto.recv_neighbours(random_node(), closest)
 
@@ -130,10 +146,12 @@ def test_find_node_timeout():
     msg = wire.poll(closest[0])
     assert msg[0] == 'ping'
     assert wire.poll(closest[0]) is None
+    wire.empty()
+    assert wire.messages == []
 
 
 def test_eviction():
-    proto = protocol()
+    proto = get_wired_protocol()
     proto.routing = routing_table(1000)
     wire = proto.wire
 
@@ -143,7 +161,7 @@ def test_eviction():
     msg = wire.poll(node)
     assert msg[0] == 'ping'
     assert wire.messages == []
-    proto.recv_pong(node, msg[1])
+    proto.recv_pong(node, msg[2])
 
     # expect no message and that node is still there
     assert wire.messages == []
@@ -154,7 +172,7 @@ def test_eviction():
 
 
 def test_eviction_timeout():
-    proto = protocol()
+    proto = get_wired_protocol()
     proto.routing = routing_table(1000)
     wire = proto.wire
 
@@ -166,7 +184,7 @@ def test_eviction_timeout():
     assert wire.messages == []
 
     time.sleep(kademlia.k_eviction_check_interval)
-    proto.recv_pong(node, msg[1])
+    proto.recv_pong(node, msg[2])
     # expect no message and that is not there anymore
     assert wire.messages == []
     assert node not in proto.routing
@@ -179,9 +197,10 @@ def test_eviction_node_active():
     """
     active nodes (replying in time) should not be evicted
     """
-    proto = protocol()
+    proto = get_wired_protocol()
     proto.routing = routing_table(10000)  # set high, so add won't split
     wire = proto.wire
+
     # get a full bucket
     full_buckets = [b for b in proto.routing.buckets if b.is_full and not b.should_split]
     assert full_buckets
@@ -213,11 +232,11 @@ def test_eviction_node_active():
     # expect a ping to bucket.head
     msg = wire.poll(eviction_candidate)
     assert msg[0] == 'ping'
-    assert msg[1] in proto._expected_pongs
+    assert msg[2] in proto._expected_pongs
     assert wire.messages == []
     # reply in time
     print 'sending pong'
-    proto.recv_pong(eviction_candidate, msg[1])
+    proto.recv_pong(eviction_candidate, msg[2])
     # expect no other messages
     assert wire.messages == []
 
@@ -234,9 +253,10 @@ def test_eviction_node_inactive():
     """
     active nodes (replying in time) should not be evicted
     """
-    proto = protocol()
+    proto = get_wired_protocol()
     proto.routing = routing_table(10000)  # set high, so add won't split
     wire = proto.wire
+
     # get a full bucket
     full_buckets = [b for b in proto.routing.buckets if b.is_full and not b.should_split]
     assert full_buckets
@@ -268,11 +288,11 @@ def test_eviction_node_inactive():
     # expect a ping to bucket.head
     msg = wire.poll(eviction_candidate)
     assert msg[0] == 'ping'
-    assert msg[1] in proto._expected_pongs
+    assert msg[2] in proto._expected_pongs
     assert wire.messages == []
     # reply late
     time.sleep(kademlia.k_eviction_check_interval)
-    proto.recv_pong(eviction_candidate, msg[1])
+    proto.recv_pong(eviction_candidate, msg[2])
 
     # expect no other messages
     assert wire.messages == []
@@ -290,9 +310,10 @@ def test_eviction_node_split():
     """
     active nodes (replying in time) should not be evicted
     """
-    proto = protocol()
+    proto = get_wired_protocol()
     proto.routing = routing_table(1000)  # set lpw, so we'll split
     wire = proto.wire
+
     # get a full bucket
     full_buckets = [b for b in proto.routing.buckets if b.is_full and b.should_split]
     assert full_buckets
@@ -330,8 +351,7 @@ def test_eviction_node_split():
 
 
 def test_ping_adds_sender():
-    wire = WireMock()
-    p = kademlia.KademliaProtocol(random_node(), wire)
+    p = get_wired_protocol()
     assert len(p.routing) == 0
     n = random_node()
     p.recv_ping(n, 'some id')
@@ -339,26 +359,56 @@ def test_ping_adds_sender():
     n = random_node()
     p.recv_ping(n, 'some id2')
     assert len(p.routing) == 2
+    p.wire.empty()
+
+
+def test_two():
+    print
+    one = get_wired_protocol()
+    one.routing = routing_table(100)
+    two = get_wired_protocol()
+    wire = one.wire
+    assert one.this_node != two.this_node
+    two.ping(one.this_node)
+    # print 'messages', wire.messages
+    wire.process([one, two])
+    two.find_node(two.this_node.id)
+    # print 'messages', wire.messages
+    msg = wire.process([one, two], steps=2)
+    # print 'messages', wire.messages
+    assert len(wire.messages) in (kademlia.k_bucket_size, kademlia.k_bucket_size + 1)
+    msg = wire.messages.pop(0)
+    assert msg[1] == 'find_node'
+    for m in wire.messages[1:]:
+        assert m[1] == 'ping'
+    wire.empty()
 
 
 def test_many():
-    num_nodes = 5
-    wire = WireMock()
+    num_nodes = 50
     protos = []
     for i in range(num_nodes):
-        protos.append(kademlia.KademliaProtocol(random_node(), wire))
+        protos.append(get_wired_protocol())
     bootstrap = protos[0]
-    for p in protos:
+    wire = bootstrap.wire
+    for p in protos[1:]:
         p.ping(bootstrap.this_node)
     wire.process(protos)
 
-    # for p in protos:
-    #     p.bootstrap([bootstrap.this_node])
-    # wire.process(protos)
+    for p in protos[1:]:
+        p.bootstrap([bootstrap.this_node])
+    wire.process(protos)
 
-    # for p in protos:
-    #     p.find_node(p.this_node.id)
-    # wire.process(protos)
+    for p in protos[1:]:
+        p.find_node(p.this_node.id)
+    wire.process(protos)
 
     for i, p in enumerate(protos):
-        print i, len(p.routing)
+        # print i, len(p.routing)
+        assert len(p.routing) >= kademlia.k_bucket_size
+
+
+"""
+wire needs to send correct sender
+somehow bind wire to nodes to add sender
+"""
