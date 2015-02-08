@@ -324,10 +324,10 @@ class KademliaProtocol(object):
         except that live nodes are never removed from the list.
         """
         assert isinstance(node, Node)
-        log.debug('in update', remoteid=node)
+        log.debug('in update', remoteid=node, localid=self.this_node)
 
         if node == self.this_node:
-            log.debug('node is', remoteid=node)
+            log.debug('node is self', remoteid=node)
             return
 
         if pingid and pingid not in self._expected_pongs:
@@ -386,20 +386,24 @@ class KademliaProtocol(object):
         if bucket is not full
         elif least recently seen, does not respond in time
         """
+        assert isinstance(node, Node)
+        log.debug('pinging', remote=node, local=self.this_node)
         pingid = self.wire.send_ping(node)
         assert pingid
         timeout = time.time() + k_eviction_check_interval
-        log.debug('set node to expect pong', remoteid=node)
+        log.debug('set wait for pong from', remote=node, local=self.this_node)
         self._expected_pongs[pingid] = (timeout, node, replacement)
 
-    def recv_ping(self, node, id):
-        assert isinstance(node, Node)
-        self.update(node)
-        self.wire.send_pong(node, id)
+    def recv_ping(self, remote, pingid):
+        assert isinstance(remote, Node)
+        assert remote != self.this_node
+        log.debug('recv ping', remote=remote, pingid=pingid.encode('hex')[:4], local=self.this_node)
+        self.update(remote)
+        self.wire.send_pong(remote, pingid)
 
-    def recv_pong(self, node, pingid):
-        log.debug('recv pong', remoteid=node, pingid=pingid.encode('hex')[:4])
-        self.update(node, pingid)
+    def recv_pong(self, remote, pingid):
+        log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:4], local=self.this_node)
+        self.update(remote, pingid)
 
     def _query_neighbours(self, nodeid):
         node = Node.from_id(nodeid)
@@ -412,15 +416,21 @@ class KademliaProtocol(object):
         self._query_neighbours(nodeid)
         # FIXME, should we return the closest node
 
-    def recv_neighbours(self, node, neighbours):
+    def recv_neighbours(self, remote, neighbours):
         """
         if one of the neighbours is closer than the closest known neighbour
             if not timed out
                 query closest node for neighbours
         add all nodes to the list
         """
-        log.debug('recv neighbours', remoteid=node, num=len(neighbours))
         assert isinstance(neighbours, list)
+        log.debug('recv neighbours', remoteid=remote, num=len(neighbours), local=self.this_node)
+        neighbours = [n for n in neighbours if n != self.this_node]
+        neighbours = [n for n in neighbours if n not in self.routing]
+        if not neighbours:
+            log.debug('no new neighbours')
+            return
+
         # we don't map requests to responses, thus forwarding to all FIXME
         for nodeid, timeout in self._find_requests.items():
             target = Node.from_id(nodeid)
@@ -428,16 +438,19 @@ class KademliaProtocol(object):
             if time.time() < timeout:
                 closest_known = self.routing.neighbours(target)[0]
                 if closest.distance(target) < closest_known.distance(target):
+                    log.debug('forwarding find request', closest=closest,
+                              closest_known=closest_known)
                     self.wire.send_find_node(closest, target.pubkey)
 
         # add all nodes to the list
         for node in neighbours:
-            self.ping(node)
+            if node != self.this_node:
+                self.ping(node)
 
-    def recv_find_node(self, node, targetid):
-        assert isinstance(node, Node)
+    def recv_find_node(self, remote, targetid):
+        assert isinstance(remote, Node)
         assert len(targetid) == 512 / 8
         assert isinstance(targetid, str)
         found = self.routing.neighbours(Node(targetid))
-        log.debug('recv find_node', remoteid=node, found=len(found))
-        self.wire.send_neighbours(node, found)
+        log.debug('recv find_node', remoteid=remote, found=len(found))
+        self.wire.send_neighbours(remote, found)
