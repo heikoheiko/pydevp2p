@@ -93,16 +93,12 @@ def _decode_sig(sig):
 def ecdsa_verify(pubkey, signature, message):
     assert len(signature) == 65
     assert len(pubkey) == 64
-    return bitcoin.ecdsa_raw_verify(bitcoin.electrum_sig_hash(message),
-                                    _decode_sig(signature), pubkey)
+    return bitcoin.ecdsa_raw_verify(message, _decode_sig(signature), pubkey)
 verify = ecdsa_verify
 
 
 def ecdsa_sign(message, privkey):
-    s = _encode_sig(*bitcoin.ecdsa_raw_sign(bitcoin.electrum_sig_hash(message), privkey))
-    pub = ecdsa_recover(message, s)
-    assert ecdsa_verify(pub, s, message)
-    assert pub == privtopub(privkey)
+    s = _encode_sig(*bitcoin.ecdsa_raw_sign(message, privkey))
     return s
 
 sign = ecdsa_sign
@@ -110,8 +106,7 @@ sign = ecdsa_sign
 
 def ecdsa_recover(message, signature):
     assert len(signature) == 65
-    pub = bitcoin.ecdsa_raw_recover(
-        bitcoin.electrum_sig_hash(message), _decode_sig(signature))
+    pub = bitcoin.ecdsa_raw_recover(message, _decode_sig(signature))
     assert pub, 'pubkey could not be recovered'
     pub = bitcoin.encode_pubkey(pub, 'bin_electrum')
     assert len(pub) == 64
