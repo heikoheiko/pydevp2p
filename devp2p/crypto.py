@@ -75,9 +75,13 @@ class ECCx(pyelliptic.ECC):
         return ecdsa_verify(self.raw_pubkey, signature, message)
 
 
+def lzpad32(x):
+    return '\x00' * (32 - len(x)) + x
+
+
 def _encode_sig(v, r, s):
     vb, rb, sb = chr(v), bitcoin.encode(r, 256), bitcoin.encode(s, 256)
-    return vb + '\x00' * (32 - len(rb)) + rb + '\x00' * (32 - len(sb)) + sb
+    return vb + lzpad32(rb) + lzpad32(sb)
 
 
 def _decode_sig(sig):
@@ -101,6 +105,7 @@ def ecdsa_recover(message, signature):
     assert len(signature) == 65
     pub = bitcoin.ecdsa_raw_recover(
         bitcoin.electrum_sig_hash(message), _decode_sig(signature))
+    assert pub, 'pubkey could not be recovered'
     pub = bitcoin.encode_pubkey(pub, 'bin_electrum')
     assert len(pub) == 64
     return pub
@@ -127,7 +132,3 @@ def encrypt(data, raw_pubkey):
     """
     assert len(raw_pubkey) == 64
     return ECCx.encrypt(data, raw_pubkey)
-
-
-if __name__ == '__main__':
-    pass
