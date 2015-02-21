@@ -4,6 +4,7 @@ https://github.com/ethereum/go-ethereum/wiki/RLPx-----Node-Discovery-Protocol
 
 """
 import time
+import struct
 import gevent
 import gevent.socket
 from devp2p import crypto
@@ -60,11 +61,37 @@ class Address(object):
         return dict(ip=self.ip, port=self.port)
 
     def to_binary(self):
-        return self._ip.packed, utils.ienc(self.port)
+        return list((self._ip.packed, utils.ienc(self.port)))
 
     @classmethod
     def from_binary(self, ip, port):
         return Address(ip, port, from_binary=True)
+
+    def to_endpoint(self):
+        """
+        struct Endpoint
+        {
+            unsigned network; // ipv4:4, ipv6:6
+            unsigned transport; // tcp:6, udp:17
+            unsigned address; // BE encoded 32-bit or 128-bit unsigned (layer3 address)
+            unsigned port; // BE encoded 16-bit unsigned (layer4 port)
+        }
+        """
+        transport = 6
+        r = [utils.ienc(self._ip.version), utils.ienc(transport)]
+        r += [self._ip.packed, struct.pack('>H', self.port)]
+        return r
+
+    @classmethod
+    def from_endpoint(self, data):
+        assert isinstance(data, list) and len(data) == 4
+        version = utils.idec(data[0])
+        assert version in (4, 6)
+        transport = utils.idec(data[1])
+        assert transport == 6
+        assert len(data[2]) == {4: 4, 6: 16}[version]
+        assert len(data[3]) == 2
+        return Address(data[2], data[3], from_binary=True)
 
 
 class Node(kademlia.Node):
@@ -190,14 +217,6 @@ class DiscoveryProtocol(kademlia.WireInterface):
         print msg[:8]
         return crypto.sign(msg, self.privkey)
 
-    def mdc(self, signature, cmd_id, encoded_data):
-        """
-        Ensures integrity of packet
-        hash: sha3(signature || packet-type || packet-data)
-        """
-        assert len(cmd_id) == 1
-        return crypto.sha3(signature + cmd_id + encoded_data)
-
     def pack(self, cmd_id, payload):
         """
         UDP packets are structured as follows:
@@ -233,12 +252,14 @@ class DiscoveryProtocol(kademlia.WireInterface):
         cmd_id = self.encoders['cmd_id'](cmd_id)
         expiration = self.encoders['expiration'](int(time.time() + self.expiration))
         encoded_data = rlp.encode(payload + [expiration])
+        # print rlp.decode(encoded_data)
         signed_data = crypto.sha3(cmd_id + encoded_data)
         signature = crypto.sign(signed_data, self.privkey)
+        assert crypto.verify(self.pubkey, signature, signed_data)
         assert self.pubkey == crypto.ecdsa_recover(signed_data, signature)
         assert crypto.verify(self.pubkey, signature, signed_data)
         assert len(signature) == 65
-        mdc = self.mdc(signature, cmd_id, encoded_data)
+        mdc = crypto.sha3(signature + cmd_id + encoded_data)
         assert len(mdc) == 32
         return mdc + signature + cmd_id + encoded_data
 
@@ -251,6 +272,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         shouldhash := crypto.Sha3(buf[macSize:])
         """
         mdc = message[:32]
+        assert mdc == crypto.sha3(message[32:])
         signature = message[32:97]
         assert len(signature) == 65
         signed_data = crypto.sha3(message[97:])
@@ -259,7 +281,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
                  signed_data=signed_data.encode('hex'),
                  signature=signature.encode('hex')
                  )
-        print o
+        # print o
         remote_pubkey = crypto.ecdsa_recover(signed_data, signature)
         assert len(remote_pubkey) == 512 / 8
         if not crypto.verify(remote_pubkey, signature, signed_data):
@@ -274,7 +296,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         return remote_pubkey, cmd_id, payload, mdc
 
     def receive(self, address, message):
-        log.debug('received message', address=address)
+        log.debug('<<< message', address=address)
         assert isinstance(address, Address)
         remote_pubkey, cmd_id, payload, mdc = self.unpack(message)
         cmd = getattr(self, 'recv_' + self.rev_cmd_id_map[cmd_id])
@@ -285,7 +307,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
 
     def send(self, node, message):
         assert node.address
-        log.debug('sending message', address=node.address)
+        log.debug('>>> message', address=node.address)
         self.transport.send(node.address, message)
 
     def send_ping(self, node):
@@ -296,17 +318,20 @@ class DiscoveryProtocol(kademlia.WireInterface):
         reply with a Pong packet and update the IP/Port of the sender in its
         node table.
 
-        RLP encoding: **[** `IP`, `Port`, `Expiration` **]**
+        PingNode packet-type: 0x01
 
-        Element   ||
-        ----------|------------------------------------------------------------
-        `IP`      | (length 4 or 16) IP address on which the node is listening
-        `Port`    | listening port of the node
+        struct PingNode
+        {
+            unsigned version = 0x1;
+            Endpoint endpoint;
+            unsigned expiration;
+        };
         """
-        log.debug('sending ping', remoteid=node)
+        log.debug('>>> ping', remoteid=node)
         ip = self.app.config.get('p2p', 'listen_host')
         port = self.app.config.getint('p2p', 'listen_port')
-        payload = list(Address(ip, port).to_binary())
+        #payload = [Address(ip, port).to_endpoint()]
+        payload = Address(ip, port).to_binary()
         message = self.pack(self.cmd_id_map['ping'], payload)
         self.send(node, message)
         return message[65:97]  # return the MDC to identify pongs
@@ -316,10 +341,10 @@ class DiscoveryProtocol(kademlia.WireInterface):
         update ip, port in node table
         Addresses can only be learned by ping messages
         """
-        ip, port = payload
-        address = Address.from_binary(ip, port)
+        # address = Address.from_endpoint(payload[0])
+        address = Address.from_binary(payload)
         node = self.get_node(nodeid, address)
-        log.debug('received ping', remoteid=node)
+        log.debug('<<< ping', remoteid=node)
         self.kademlia.recv_ping(node, pingid=mdc)
 
     def send_pong(self, node, token):
@@ -328,23 +353,24 @@ class DiscoveryProtocol(kademlia.WireInterface):
 
         Pong is the reply to a Ping packet.
 
-        RLP encoding: **[** `Reply Token`, `Expiration` **]**
-
-        Element       ||
-        --------------|-----------------------------------------------
-        `Reply Token` | content of the MDC element of the Ping packet
+        Pong packet-type: 0x02
+        struct Pong  // response to PingNode
+        {
+            h256 echo; // hash of PingNode payload
+            unsigned expiration;
+        };
         """
-        log.debug('sending pong', remoteid=node)
+        log.debug('>>> pong', remoteid=node)
         message = self.pack(self.cmd_id_map['pong'], [token])
         self.send(node, message)
 
     def recv_pong(self, nodeid,  payload, mdc):
-        mdc = payload[0]
+        echoed = payload[0]
         if nodeid in self.nodes:
             node = self.get_node(nodeid)
-            self.kademlia.recv_pong(node, mdc)
+            self.kademlia.recv_pong(node, echoed)
         else:
-            log.debug('received unexpected pong from unkown node')
+            log.debug('<<< unexpected pong from unkown node')
 
     def send_find_node(self, node, target_node_id):
         """
@@ -354,21 +380,22 @@ class DiscoveryProtocol(kademlia.WireInterface):
         The receiver should reply with a Neighbors packet containing the `k`
         nodes closest to target that it knows about.
 
-        RLP encoding: **[** `Target`, `Expiration` **]**
-
-        Element  ||
-        ---------|--------------------
-        `Target` | is the target ID
+        FindNode packet-type: 0x03
+        struct FindNode
+        {
+            NodeId target;
+            unsigned expiration;
+        };
         """
         assert isinstance(target_node_id, str)
         assert len(target_node_id) == 64
-        log.debug('sending find_node', remoteid=node)
+        log.debug('>>> find_node', remoteid=node)
         message = self.pack(self.cmd_id_map['find_node'], [target_node_id])
         self.send(node, message)
 
     def recv_find_node(self, nodeid, payload, mdc):
         node = self.get_node(nodeid)
-        log.debug('received find_node', remoteid=node)
+        log.debug('<<< find_node', remoteid=node)
         target = payload[0]
         self.kademlia.recv_find_node(node, target)
 
@@ -379,42 +406,53 @@ class DiscoveryProtocol(kademlia.WireInterface):
         Neighbors is the reply to Find Node. It contains up to `k` nodes that
         the sender knows which are closest to the requested `Target`.
 
-        RLP encoding: **[ [** `Node₁`, `Node₂`, ..., `Nodeₙ` **]**, `Expiration` **]**
-        Each `Node` is a list of the form **[** `Version`, `IP`, `Port`, `ID` **]**
+        Neighbors packet-type: 0x04
+        struct Neighbors  // reponse to FindNode
+        {
+            struct Node
+            {
+                Endpoint endpoint;
+                NodeId node;
+            };
 
-        Element   ||
-        ----------|---------------------------------------------------------------
-        `ID`      | The advertised node's public key
-        `Version` | the RLPx protocol version that the node implements
-        `IP`      | (length 4 or 16) IP address on which the node is listening
-        `Port`    | listening port of the node
+            std::list<Node> nodes;
+            unsigned expiration;
+        };
         """
         assert isinstance(neighbours, list)
         assert not neighbours or isinstance(neighbours[0], Node)
         nodes = []
         for n in neighbours:
-            l = [n.pubkey, self.encoders['version'](n.rlpx_version)]
-            l += list(n.address.to_binary())
+            #nodes.append([n.address.to_endpoint(), n.pubkey])
+            # l = [n.pubkey, self.encoders['version'](n.rlpx_version)]
+            # l += list(n.address.to_binary())
+            l = n.address.to_binary()
+            l.append(n.pubkey)
             nodes.append(l)
+        log.debug('>>> neighbours', remoteid=node, count=len(nodes))
         message = self.pack(self.cmd_id_map['neighbours'], [nodes])
         self.send(node, message)
 
     def recv_neighbours(self, nodeid, payload, mdc):
         node = self.get_node(nodeid)
-        neighbours = payload[0]
-        assert isinstance(neighbours, list)
-        log.debug('received neigbours', remoteid=node, count=len(neighbours))
+        assert len(payload) == 1
+        neighbours_lst = payload[0]
+        assert isinstance(neighbours_lst, list)
+        log.debug('<<< neigbours', remoteid=node, count=len(neighbours_lst))
+        neighbours = []
+
+        for (ip, port, nodeid) in neighbours_lst:
+            address = Address.from_binary(ip, port)
+            node = self.get_node(nodeid, address)
+            neighbours.append(node)
+        self.kademlia.recv_neighbours(node, neighbours)
 
         # decode neighbours and add to nodes
-        for i, (nodeid, version, ip, port) in enumerate(neighbours):
-            if nodeid not in self.nodes:
-                address = Address.from_binary(ip, port)
-                node = self.get_node(nodeid, address)
-                node.rlpx_version = self.decoders['version'](version)
-            else:
-                self.get_node(nodeid)
-            neighbours[i] = node
-        self.kademlia.recv_neighbours(node, neighbours)
+        # for i, (endpoint, nodeid) in enumerate(neighbours):
+        #     address = Address.from_endpoint(endpoint)
+        # node = self.get_node(nodeid, address)  # existing nodes are updated
+        #     neighbours[i] = node
+        # self.kademlia.recv_neighbours(node, neighbours)
 
 
 class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
@@ -424,6 +462,7 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
     """
 
     name = 'discovery'
+    server = None  # will be set to DatagramServer
 
     def __init__(self, app):
         BaseService.__init__(self, app)
@@ -435,13 +474,18 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
         return Address(self.app.config.get('p2p', 'listen_host'),
                        self.app.config.getint('p2p', 'listen_port'))
 
-    def send(self, address, message):
+    def _send(self, address, message):
         assert isinstance(address, Address)
         sock = gevent.socket.socket(type=gevent.socket.SOCK_DGRAM)
         # sock.bind(('0.0.0.0', self.address.port))  # send from our recv port
         sock.connect((address.ip, address.port))
         log.debug('sending', size=len(message), to=address)
         sock.send(message)
+
+    def send(self, address, message):
+        assert isinstance(address, Address)
+        log.debug('sending', size=len(message), to=address)
+        self.server.sendto(message, (address.ip, address.port))
 
     def receive(self, address, message):
         assert isinstance(address, Address)
