@@ -61,7 +61,11 @@ class Address(object):
         return dict(ip=self.ip, port=self.port)
 
     def to_binary(self):
-        return list((self._ip.packed, utils.ienc(self.port)))
+        return list((self._ip.packed, struct.pack('>H', self.port)))
+
+    @classmethod
+    def from_binary(self, ip, port):
+        return Address(ip, port, from_binary=True)
 
     @classmethod
     def from_binary(self, ip, port):
@@ -256,11 +260,13 @@ class DiscoveryProtocol(kademlia.WireInterface):
         signed_data = crypto.sha3(cmd_id + encoded_data)
         signature = crypto.sign(signed_data, self.privkey)
         assert crypto.verify(self.pubkey, signature, signed_data)
-        assert self.pubkey == crypto.ecdsa_recover(signed_data, signature)
-        assert crypto.verify(self.pubkey, signature, signed_data)
+        # assert self.pubkey == crypto.ecdsa_recover(signed_data, signature)
+        # assert crypto.verify(self.pubkey, signature, signed_data)
         assert len(signature) == 65
         mdc = crypto.sha3(signature + cmd_id + encoded_data)
         assert len(mdc) == 32
+        # print dict(mdc=mdc.encode('hex'), signature=signature.encode('hex'),
+        #            data=str(cmd_id + encoded_data).encode('hex'))
         return mdc + signature + cmd_id + encoded_data
 
     def unpack(self, message):
@@ -426,8 +432,9 @@ class DiscoveryProtocol(kademlia.WireInterface):
             #nodes.append([n.address.to_endpoint(), n.pubkey])
             # l = [n.pubkey, self.encoders['version'](n.rlpx_version)]
             # l += list(n.address.to_binary())
-            l = n.address.to_binary()
-            l.append(n.pubkey)
+            # l = n.address.to_binary() + [n.pubkey]
+            # l = [n.pubkey] + n.address.to_binary()
+            l = [n.address.ip, struct.pack('>H', n.address.port), n.pubkey]
             nodes.append(l)
         log.debug('>>> neighbours', remoteid=node, count=len(nodes))
         message = self.pack(self.cmd_id_map['neighbours'], [nodes])
@@ -441,8 +448,9 @@ class DiscoveryProtocol(kademlia.WireInterface):
         log.debug('<<< neigbours', remoteid=node, count=len(neighbours_lst))
         neighbours = []
 
+        # for (nodeid, ip, port) in neighbours_lst:
         for (ip, port, nodeid) in neighbours_lst:
-            address = Address.from_binary(ip, port)
+            address = Address(ip, struct.unpack('>H', port))
             node = self.get_node(nodeid, address)
             neighbours.append(node)
         self.kademlia.recv_neighbours(node, neighbours)
