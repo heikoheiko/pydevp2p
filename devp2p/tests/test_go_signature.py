@@ -1,5 +1,16 @@
-from devp2p.crypto import ecdsa_sign, mk_privkey, privtopub, ecdsa_recover
+from devp2p.crypto import ecdsa_sign, mk_privkey, privtopub, ecdsa_recover, ECCx
+import pyelliptic
 import bitcoin
+
+
+def test_pyelliptic_sig():
+    priv_seed = 'test'
+    priv_key = mk_privkey(priv_seed)
+    my_pubkey = privtopub(priv_key)
+    e = ECCx(my_pubkey, priv_key)
+    msg = 'a'
+    s = pyelliptic.ECC.sign(e, msg)
+    assert s == pyelliptic.ECC.sign(e, msg)  # deterministic
 
 
 def test_go_sig():
@@ -41,8 +52,12 @@ def test_go_sig():
 
     try:
         assert my_signature == go_signature
+        failed = False
     except:
-        print "expected fail, go signatures are not generated with deterministic k"
+        "expected fail, go signatures are not generated with deterministic k"
+        failed = True
+        pass
+    assert failed
 
     # decoding works when we signed it
     assert my_pubkey == ecdsa_recover(go_signed_data, my_signature)

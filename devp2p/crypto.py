@@ -80,12 +80,14 @@ def lzpad32(x):
 
 
 def _encode_sig(v, r, s):
+    # vb in the middle
+    # https://github.com/ethereum/go-ethereum/blob/develop/crypto/secp256k1/secp256.go#L154
     vb, rb, sb = chr(v), bitcoin.encode(r, 256), bitcoin.encode(s, 256)
-    return vb + lzpad32(rb) + lzpad32(sb)
+    return lzpad32(rb) + vb + lzpad32(sb)
 
 
 def _decode_sig(sig):
-    return ord(sig[0]), bitcoin.decode(sig[1:33], 256), bitcoin.decode(sig[33:], 256)
+    return ord(sig[32]), bitcoin.decode(sig[0:32], 256), bitcoin.decode(sig[33:], 256)
 
 
 def ecdsa_verify(pubkey, signature, message):
