@@ -80,17 +80,14 @@ def lzpad32(x):
 
 
 def _encode_sig(v, r, s):
-    # vb in the middle
-    # https://github.com/ethereum/go-ethereum/blob/develop/crypto/secp256k1/secp256.go#L154
     assert isinstance(v, (int, long))
     assert v in (27, 28)
-    assert r >= 0 and s >= 0
-    vb, rb, sb = chr(v), bitcoin.encode(r, 256), bitcoin.encode(s, 256)
+    vb, rb, sb = chr(v - 27), bitcoin.encode(r, 256), bitcoin.encode(s, 256)
     return lzpad32(rb) + lzpad32(sb) + vb
 
 
 def _decode_sig(sig):
-    return ord(sig[64]), bitcoin.decode(sig[0:32], 256), bitcoin.decode(sig[32:64], 256)
+    return ord(sig[64]) + 27, bitcoin.decode(sig[0:32], 256), bitcoin.decode(sig[32:64], 256)
 
 
 def ecdsa_verify(pubkey, signature, message):
@@ -102,7 +99,12 @@ verify = ecdsa_verify
 
 
 def ecdsa_sign(message, privkey):
-    return _encode_sig(*bitcoin.ecdsa_raw_sign(bitcoin.electrum_sig_hash(message), privkey))
+    s = _encode_sig(*bitcoin.ecdsa_raw_sign(bitcoin.electrum_sig_hash(message), privkey))
+    pub = ecdsa_recover(message, s)
+    assert ecdsa_verify(pub, s, message)
+    assert pub == privtopub(privkey)
+    return s
+
 sign = ecdsa_sign
 
 
