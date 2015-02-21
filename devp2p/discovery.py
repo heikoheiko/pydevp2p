@@ -180,22 +180,36 @@ class DiscoveryProtocol(kademlia.WireInterface):
         assert node.address
         return node
 
-    def sign(self, mdc):
-        return crypto.sign(mdc, self.privkey)
+    def sign(self, msg):
+        """
+        signature: sign(privkey, sha3(packet-type || packet-data))
+        signature: sign(privkey, sha3(pubkey || packet-type || packet-data))
+            // implementation w/MCD
+        """
+        msg = crypto.sha3(msg)
+        print msg[:8]
+        return crypto.sign(msg, self.privkey)
 
-    def mdc(self, cmd_id, encoded_data, pubkey=None):
-        """Ensures integrity of packet, `SHA3(sender-pubkey || type || data)`"""
-        pubkey = pubkey or self.pubkey
+    def mdc(self, signature, cmd_id, encoded_data):
+        """
+        Ensures integrity of packet
+        hash: sha3(signature || packet-type || packet-data)
+        """
         assert len(cmd_id) == 1
-        return crypto.sha3(pubkey + cmd_id + encoded_data)
+        return crypto.sha3(signature + cmd_id + encoded_data)
 
     def pack(self, cmd_id, payload):
         """
         UDP packets are structured as follows:
 
+        hash || signature || packet-type || packet-data
+        packet-type: single byte < 2**7 // valid values are [1,4]
+        packet-data: RLP encoded list. Packet properties are serialized in the order in
+                    which they're defined. See packet-data below.
+
         Offset  |
-        0       | signature | Ensures authenticity of sender, `SIGN(sender-privkey, MDC)`
-        65      | MDC       | Ensures integrity of packet, `SHA3(sender-pubkey || type || data)`
+        0       | MDC       | Ensures integrity of packet,
+        65      | signature | Ensures authenticity of sender, `SIGN(sender-privkey, MDC)`
         97      | type      | Single byte in range [1, 4] that determines the structure of Data
         98      | data      | RLP encoded, see section Packet Data
 
@@ -219,18 +233,36 @@ class DiscoveryProtocol(kademlia.WireInterface):
         cmd_id = self.encoders['cmd_id'](cmd_id)
         expiration = self.encoders['expiration'](int(time.time() + self.expiration))
         encoded_data = rlp.encode(payload + [expiration])
-        mdc = self.mdc(cmd_id, encoded_data)
-        assert len(mdc) == 32
-        signature = self.sign(mdc)
+        signed_data = crypto.sha3(cmd_id + encoded_data)
+        signature = crypto.sign(signed_data, self.privkey)
+        assert self.pubkey == crypto.ecdsa_recover(signed_data, signature)
+        assert crypto.verify(self.pubkey, signature, signed_data)
         assert len(signature) == 65
-        return signature + mdc + cmd_id + encoded_data
+        mdc = self.mdc(signature, cmd_id, encoded_data)
+        assert len(mdc) == 32
+        return mdc + signature + cmd_id + encoded_data
 
     def unpack(self, message):
-        signature = message[:65]
-        mdc = message[65:97]
-        remote_pubkey = crypto.ecdsa_recover(mdc, signature)
+        """
+        macSize  = 256 / 8 = 32
+        sigSize  = 520 / 8 = 65
+        headSize = macSize + sigSize = 97
+        hash, sig, sigdata := buf[:macSize], buf[macSize:headSize], buf[headSize:]
+        shouldhash := crypto.Sha3(buf[macSize:])
+        """
+        mdc = message[:32]
+        signature = message[32:97]
+        assert len(signature) == 65
+        signed_data = crypto.sha3(message[97:])
+        o = dict(cmd=self.rev_cmd_id_map[self.decoders['cmd_id'](message[97])],
+                 body=message[97:].encode('hex'),
+                 signed_data=signed_data.encode('hex'),
+                 signature=signature.encode('hex')
+                 )
+        print o
+        remote_pubkey = crypto.ecdsa_recover(signed_data, signature)
         assert len(remote_pubkey) == 512 / 8
-        if not crypto.verify(remote_pubkey, signature, mdc):
+        if not crypto.verify(remote_pubkey, signature, signed_data):
             raise InvalidSignature()
         cmd_id = self.decoders['cmd_id'](message[97])
         assert cmd_id in self.cmd_id_map.values()
@@ -242,6 +274,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         return remote_pubkey, cmd_id, payload, mdc
 
     def receive(self, address, message):
+        log.debug('received message', address=address)
         assert isinstance(address, Address)
         remote_pubkey, cmd_id, payload, mdc = self.unpack(message)
         cmd = getattr(self, 'recv_' + self.rev_cmd_id_map[cmd_id])
@@ -252,7 +285,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
 
     def send(self, node, message):
         assert node.address
-
+        log.debug('sending message', address=node.address)
         self.transport.send(node.address, message)
 
     def send_ping(self, node):
@@ -276,9 +309,9 @@ class DiscoveryProtocol(kademlia.WireInterface):
         payload = list(Address(ip, port).to_binary())
         message = self.pack(self.cmd_id_map['ping'], payload)
         self.send(node, message)
-        return message[65:97]  # return the MCD to identify pongs
+        return message[65:97]  # return the MDC to identify pongs
 
-    def recv_ping(self, nodeid, payload, mcd):
+    def recv_ping(self, nodeid, payload, mdc):
         """
         update ip, port in node table
         Addresses can only be learned by ping messages
@@ -287,7 +320,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         address = Address.from_binary(ip, port)
         node = self.get_node(nodeid, address)
         log.debug('received ping', remoteid=node)
-        self.kademlia.recv_ping(node, id=mcd)
+        self.kademlia.recv_ping(node, pingid=mdc)
 
     def send_pong(self, node, token):
         """
@@ -305,10 +338,11 @@ class DiscoveryProtocol(kademlia.WireInterface):
         message = self.pack(self.cmd_id_map['pong'], [token])
         self.send(node, message)
 
-    def recv_pong(self, nodeid,  payload, mcd):
+    def recv_pong(self, nodeid,  payload, mdc):
+        mdc = payload[0]
         if nodeid in self.nodes:
             node = self.get_node(nodeid)
-            self.kademlia.recv_pong(node, mcd)
+            self.kademlia.recv_pong(node, mdc)
         else:
             log.debug('received unexpected pong from unkown node')
 
@@ -332,7 +366,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         message = self.pack(self.cmd_id_map['find_node'], [target_node_id])
         self.send(node, message)
 
-    def recv_find_node(self, nodeid, payload, mcd):
+    def recv_find_node(self, nodeid, payload, mdc):
         node = self.get_node(nodeid)
         log.debug('received find_node', remoteid=node)
         target = payload[0]
@@ -365,7 +399,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         message = self.pack(self.cmd_id_map['neighbours'], [nodes])
         self.send(node, message)
 
-    def recv_neighbours(self, nodeid, payload, mcd):
+    def recv_neighbours(self, nodeid, payload, mdc):
         node = self.get_node(nodeid)
         neighbours = payload[0]
         assert isinstance(neighbours, list)

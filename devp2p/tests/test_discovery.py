@@ -73,6 +73,11 @@ class NodeDiscoveryMock(object):
 
 
 def test_packing():
+    """
+    https://github.com/ethereum/go-ethereum/blob/develop/crypto/secp256k1/secp256.go#L299
+    https://github.com/ethereum/go-ethereum/blob/develop/p2p/discover/udp.go#L343
+    """
+
     # get two DiscoveryProtocol instances
     alice = NodeDiscoveryMock(host='127.0.0.1', port=1, seed='alice').protocol
     bob = NodeDiscoveryMock(host='127.0.0.1', port=1, seed='bob').protocol
@@ -82,8 +87,9 @@ def test_packing():
         message = alice.pack(cmd_id, payload)
         r_pubkey, r_cmd_id, r_payload, mdc = bob.unpack(message)
         assert r_cmd_id == cmd_id
-        assert r_pubkey == alice.pubkey
         assert r_payload == payload
+        assert len(r_pubkey) == len(alice.pubkey)
+        assert r_pubkey == alice.pubkey
 
 
 def test_ping_pong():
@@ -103,7 +109,7 @@ def test_ping_pong():
     assert len(NodeDiscoveryMock.messages) == 0
 
 
-############## test with real UDP ##################
+# ############ test with real UDP ##################
 
 def get_app(port, seed):
     config = ConfigParser.ConfigParser()
@@ -125,46 +131,104 @@ def test_ping_pong_udp():
     bob_app.start()
     bob_discovery = bob_app.services.discovery
 
+    gevent.sleep(0.1)
     bob_node = alice_discovery.protocol.get_node(bob_discovery.protocol.pubkey,
                                                  bob_discovery.address)
+    assert bob_node not in alice_discovery.protocol.kademlia.routing
     alice_discovery.protocol.kademlia.ping(bob_node)
+    assert bob_node not in alice_discovery.protocol.kademlia.routing
     gevent.sleep(0.1)
     bob_app.stop()
     alice_app.stop()
+    assert bob_node in alice_discovery.protocol.kademlia.routing
 
 
 def test_bootstrap_udp():
     """
     startup num_apps udp server and node applications
     """
-    num_apps = 10
+    num_apps = 3
     apps = []
     for i in range(num_apps):
         app = get_app(30002 + i, 'app%d' % i)
         app.start()
         apps.append(app)
 
-    def kademlia(i):
-        return apps[i].services.discovery.protocol.kademlia
+    gevent.sleep(0.5)
 
-    boot_node = kademlia(0).this_node
+    kproto = lambda app: app.services.discovery.protocol.kademlia
+    this_node = lambda app: kproto(app).this_node
+
+    boot_node = this_node(apps[0])
     assert boot_node.address
 
-    for i, app in enumerate(apps):
-        kademlia(i).ping(boot_node)
+    def tsleep():
+        "allow to schedule other greenlets"
+        print 'test sleeping'
+        for i in range(len(apps) * 4):
+            gevent.sleep(0.01)
 
-    for i, app in enumerate(apps):
-        kademlia(i).bootstrap([boot_node])
-    total_0 = sum(len(kademlia(i).routing) for i, app in enumerate(apps))
+    for app in apps[1:]:
+        print 'test ping from=%s to=%s' % (this_node(app), boot_node)
+        kproto(app).ping(boot_node)
 
-    for i, app in enumerate(apps):
-        kademlia(i).bootstrap([boot_node])
-    total_1 = sum(len(kademlia(i).routing) for i, app in enumerate(apps))
+    for app in apps[1:]:
+        print 'test find_node from=%s' % (this_node(app))
+        kproto(app).find_node(this_node(app).id)
+        tsleep()
 
-    gevent.sleep(0.1)
+    tsleep()
 
     for app in apps:
         app.stop()
 
-    print('total entries round #0: {0}'.format(total_0))
-    print('total entries round #1: {0}'.format(total_1))
+    # now all nodes should know each other
+    for app in apps:
+        num = len(kproto(app).routing)
+        print num
+        assert num >= num_apps - 1
+
+
+def main():
+    "test connecting nodes"
+    app = get_app(30303, 'theapp')
+    app.config.set('p2p', 'listen_host', '0.0.0.0')
+    app.start()
+
+    print "this node is"
+    print app.services.discovery.protocol.pubkey.encode('hex')
+
+    gevent.sleep(0.5)
+
+    # add external node
+
+    r_ip = '127.0.0.1'
+    r_port = 40404
+    r_pubkey = 'ab16b8c7fc1febb74ceedf1349944ffd4a04d11802451d02e808f08cb3b0c1c1a9c4e1efb7d309a762baa4c9c8da08890b3b712d1666b5b630d6c6a09cbba171'.decode(
+        'hex')
+
+    # go
+    # r_ip = '54.169.166.226'
+    # r_port = 30303
+    # r_pubkey = '6cdd090303f394a1cac34ecc9f7cda18127eafa2a3a06de39f6d920b0e583e062a7362097c7c65ee490a758b442acd5c80c6fce4b148c6a391e946b45131365b'.decode(
+    #     'hex')
+
+    # cpp
+    r_ip = '5.1.83.226'
+    r_port = 30303
+    r_pubkey = '4a44599974518ea5b0f14c31c4463692ac0329cb84851f3435e6d1b18ee4eae4aa495f846a0fa1219bd58035671881d44423876e57db2abd57254d0197da0ebe'.decode(
+        'hex')
+
+    r_address = discovery.Address(r_ip, r_port)
+    r_node = discovery.Node(r_pubkey, r_address)
+    # app.services.discovery.protocol.kademlia.update(r_node)
+    app.services.discovery.protocol.kademlia.bootstrap([r_node])
+    app.services.discovery.protocol.kademlia.ping(r_node)
+    while True:
+        gevent.sleep(0.0123)
+
+
+if __name__ == '__main__':
+    import pyethereum.slogging
+    pyethereum.slogging.configure(config_string=':debug')
+    main()

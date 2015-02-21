@@ -25,7 +25,6 @@ log = slogging.get_logger('kademlia')
 k_b = 8  # 8 bits per hop
 
 k_bucket_size = 16
-k_eviction_check_interval = 750 / 1000.  # ping timeout, evict if it fails
 k_request_timeout = 300 / 1000.          # timeout of finde_node lookups
 k_idle_bucket_refresh_interval = 3600    # ping all nodes in bucket if bucket was idle
 k_find_concurrency = 3                   # parallel find node lookups
@@ -331,7 +330,8 @@ class KademliaProtocol(object):
             return
 
         if pingid and pingid not in self._expected_pongs:
-            log.debug('unexpected pong', remoteid=node)
+            log.debug('unexpected pong', remoteid=node,
+                      num_expected=self._expected_pongs, pingid=pingid)
             return
 
         # check for timed out pings and eventually evict them
@@ -387,10 +387,11 @@ class KademliaProtocol(object):
         elif least recently seen, does not respond in time
         """
         assert isinstance(node, Node)
+        assert node != self.this_node
         log.debug('pinging', remote=node, local=self.this_node)
         pingid = self.wire.send_ping(node)
         assert pingid
-        timeout = time.time() + k_eviction_check_interval
+        timeout = time.time() + k_request_timeout
         log.debug('set wait for pong from', remote=node, local=self.this_node)
         self._expected_pongs[pingid] = (timeout, node, replacement)
 
@@ -402,6 +403,7 @@ class KademliaProtocol(object):
         self.wire.send_pong(remote, pingid)
 
     def recv_pong(self, remote, pingid):
+        assert remote != self.this_node
         log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:4], local=self.this_node)
         self.update(remote, pingid)
 
