@@ -26,6 +26,13 @@ def test_address():
 
     b_a6 = a6.to_binary()
     assert a6 == Address.from_binary(*b_a6)
+
+    e_a4 = a4.to_endpoint()
+    assert a4 == Address.from_endpoint(e_a4)
+
+    e_a6 = a6.to_endpoint()
+    assert a6 == Address.from_endpoint(e_a6)
+
     assert len(b_a6[0]) == 16
     assert len(b_a4[0]) == 4
     assert len(b_a6[1]) == 1
@@ -192,7 +199,7 @@ def test_bootstrap_udp():
 def main():
     "test connecting nodes"
     app = get_app(30303, 'theapp')
-    app.config.set('p2p', 'listen_host', '0.0.0.0')
+    app.config.set('p2p', 'listen_host', '127.0.0.1')
     app.start()
 
     print "this node is"
@@ -214,17 +221,22 @@ def main():
     #     'hex')
 
     # cpp
-    r_ip = '5.1.83.226'
-    r_port = 30303
-    r_pubkey = '4a44599974518ea5b0f14c31c4463692ac0329cb84851f3435e6d1b18ee4eae4aa495f846a0fa1219bd58035671881d44423876e57db2abd57254d0197da0ebe'.decode(
-        'hex')
+    # r_ip = '5.1.83.226'
+    # r_port = 30303
+    # r_pubkey = '4a44599974518ea5b0f14c31c4463692ac0329cb84851f3435e6d1b18ee4eae4aa495f846a0fa1219bd58035671881d44423876e57db2abd57254d0197da0ebe'.decode(
+    #     'hex')
 
     r_address = discovery.Address(r_ip, r_port)
     r_node = discovery.Node(r_pubkey, r_address)
+    # add node to the routing table
+    app.services.discovery.protocol.kademlia.routing.add_node(r_node)
+
     # app.services.discovery.protocol.kademlia.update(r_node)
-    app.services.discovery.protocol.kademlia.bootstrap([r_node])
+    # app.services.discovery.protocol.kademlia.bootstrap([r_node])
+
     app.services.discovery.protocol.kademlia.ping(r_node)
     while True:
+        # app.services.discovery.protocol.kademlia.ping(r_node)
         gevent.sleep(0.0123)
 
 

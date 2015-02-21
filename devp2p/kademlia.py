@@ -407,15 +407,15 @@ class KademliaProtocol(object):
         log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:4], local=self.this_node)
         self.update(remote, pingid)
 
-    def _query_neighbours(self, nodeid):
-        node = Node.from_id(nodeid)
+    def _query_neighbours(self, targetid):
+        node = Node.from_id(targetid)
         for n in self.routing.neighbours(node)[:k_find_concurrency]:
             self.wire.send_find_node(n, node.pubkey)
 
-    def find_node(self, nodeid):
-        assert isinstance(nodeid, long)
-        self._find_requests[nodeid] = time.time() + k_request_timeout
-        self._query_neighbours(nodeid)
+    def find_node(self, targetid):
+        assert isinstance(targetid, long)
+        self._find_requests[targetid] = time.time() + k_request_timeout
+        self._query_neighbours(targetid)
         # FIXME, should we return the closest node
 
     def recv_neighbours(self, remote, neighbours):

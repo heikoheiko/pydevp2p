@@ -183,7 +183,7 @@ def test_eviction_timeout():
     assert msg[0] == 'ping'
     assert wire.messages == []
 
-    time.sleep(kademlia.k_eviction_check_interval)
+    time.sleep(kademlia.k_request_timeout)
     proto.recv_pong(node, msg[2])
     # expect no message and that is not there anymore
     assert wire.messages == []
@@ -291,7 +291,7 @@ def test_eviction_node_inactive():
     assert msg[2] in proto._expected_pongs
     assert wire.messages == []
     # reply late
-    time.sleep(kademlia.k_eviction_check_interval)
+    time.sleep(kademlia.k_request_timeout)
     proto.recv_pong(eviction_candidate, msg[2])
 
     # expect no other messages
@@ -385,7 +385,7 @@ def test_two():
 
 
 def test_many():
-    num_nodes = 50
+    num_nodes = 5
     protos = []
     for i in range(num_nodes):
         protos.append(get_wired_protocol())
