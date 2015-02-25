@@ -340,7 +340,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         payload = Address(ip, port).to_binary()
         message = self.pack(self.cmd_id_map['ping'], payload)
         self.send(node, message)
-        return message[65:97]  # return the MDC to identify pongs
+        return message[:32]  # return the MDC to identify pongs
 
     def recv_ping(self, nodeid, payload, mdc):
         """
