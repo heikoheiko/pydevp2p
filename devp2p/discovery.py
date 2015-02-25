@@ -44,6 +44,7 @@ class Address(object):
             self._ip = ipaddress.ip_address(ip)
             self.port = utils.idec(port)
         else:
+            assert isinstance(port, (int, long))
             self._ip = ipaddress.ip_address(unicode(ip))
             self.port = port
 
@@ -175,7 +176,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
     The receiver should discard any packet whose `Expiration` value is in the past.
     """
 
-    expiration = 5  # let messages expire after N secondes
+    expiration = 60  # let messages expire after N secondes
 
     cmd_id_map = dict(ping=1, pong=2, find_node=3, neighbours=4)
     rev_cmd_id_map = dict((v, k) for k, v in cmd_id_map.items())
@@ -282,12 +283,6 @@ class DiscoveryProtocol(kademlia.WireInterface):
         signature = message[32:97]
         assert len(signature) == 65
         signed_data = crypto.sha3(message[97:])
-        o = dict(cmd=self.rev_cmd_id_map[self.decoders['cmd_id'](message[97])],
-                 body=message[97:].encode('hex'),
-                 signed_data=signed_data.encode('hex'),
-                 signature=signature.encode('hex')
-                 )
-        # print o
         remote_pubkey = crypto.ecdsa_recover(signed_data, signature)
         assert len(remote_pubkey) == 512 / 8
         if not crypto.verify(remote_pubkey, signature, signed_data):
