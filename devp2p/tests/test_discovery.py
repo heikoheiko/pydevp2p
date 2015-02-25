@@ -1,5 +1,6 @@
 import ConfigParser
 from devp2p import discovery
+from devp2p import kademlia
 from devp2p import crypto
 from devp2p.app import BaseApp
 import gevent
@@ -35,8 +36,9 @@ def test_address():
 
     assert len(b_a6[0]) == 16
     assert len(b_a4[0]) == 4
-    assert len(b_a6[1]) == 1
-    assert len(b_a4[1]) == 1
+    assert isinstance(b_a6[1], str)
+    assert len(b_a6[1]) == 2
+    assert len(b_a4[1]) == 2
 
 
 #############################
@@ -154,14 +156,19 @@ def test_bootstrap_udp():
     """
     startup num_apps udp server and node applications
     """
-    num_apps = 3
+
+    # set timeout to something more tolerant
+    kademlia.k_request_timeout = 10000.
+
+    num_apps = 6
     apps = []
     for i in range(num_apps):
         app = get_app(30002 + i, 'app%d' % i)
         app.start()
         apps.append(app)
 
-    gevent.sleep(0.5)
+    gevent.sleep(0.1)
+    sleep_delay = 1  # we need to wait for the packets to be delivered
 
     kproto = lambda app: app.services.discovery.protocol.kademlia
     this_node = lambda app: kproto(app).this_node
@@ -169,75 +176,80 @@ def test_bootstrap_udp():
     boot_node = this_node(apps[0])
     assert boot_node.address
 
-    def tsleep():
-        "allow to schedule other greenlets"
-        print 'test sleeping'
-        for i in range(len(apps) * 4):
-            gevent.sleep(0.01)
-
     for app in apps[1:]:
-        print 'test ping from=%s to=%s' % (this_node(app), boot_node)
-        kproto(app).ping(boot_node)
+        print 'test bootstrap from=%s to=%s' % (this_node(app), boot_node)
+        kproto(app).bootstrap([boot_node])
+        gevent.sleep(sleep_delay)
+
+    gevent.sleep(sleep_delay * 2)
 
     for app in apps[1:]:
         print 'test find_node from=%s' % (this_node(app))
         kproto(app).find_node(this_node(app).id)
-        tsleep()
+        gevent.sleep(sleep_delay)
 
-    tsleep()
+    gevent.sleep(sleep_delay * 2)
 
     for app in apps:
         app.stop()
 
     # now all nodes should know each other
-    for app in apps:
+    for i, app in enumerate(apps):
         num = len(kproto(app).routing)
         print num
-        assert num >= num_apps - 1
+        if i < len(apps) / 2:  # only the first half has enough time to get all updates
+            assert num >= num_apps - 1
+
+
+def node_by_uri(uri):
+    scheme = 'enode://'
+    assert uri.startswith(scheme) and '@' in uri and ':' in uri
+    pubkey, ip_port = uri[len(scheme):].split('@')
+    ip, port = ip_port.split(':')
+    return discovery.Node(pubkey.decode('hex'), discovery.Address(ip, int(port)))
 
 
 def main():
     "test connecting nodes"
     app = get_app(30303, 'theapp')
-    app.config.set('p2p', 'listen_host', '127.0.0.1')
+    #app.config.set('p2p', 'listen_host', '127.0.0.1')
+    app.config.set('p2p', 'listen_host', '0.0.0.0')
     app.start()
 
     print "this node is"
-    print app.services.discovery.protocol.pubkey.encode('hex')
+    proto = app.services.discovery.protocol.kademlia
+    this_node = proto.this_node
+    print this_node.pubkey.encode('hex')
 
     gevent.sleep(0.5)
 
     # add external node
 
-    r_ip = '127.0.0.1'
-    r_port = 40404
-    r_pubkey = 'ab16b8c7fc1febb74ceedf1349944ffd4a04d11802451d02e808f08cb3b0c1c1a9c4e1efb7d309a762baa4c9c8da08890b3b712d1666b5b630d6c6a09cbba171'.decode(
-        'hex')
+    local = 'enode://ab16b8c7fc1febb74ceedf1349944ffd4a04d11802451d02e808f08cb3b0c1c1a9c4e1efb7d309a762baa4c9c8da08890b3b712d1666b5b630d6c6a09cbba171@127.0.0.1:40404'
 
-    # go
-    # r_ip = '54.169.166.226'
-    # r_port = 30303
-    # r_pubkey = '6cdd090303f394a1cac34ecc9f7cda18127eafa2a3a06de39f6d920b0e583e062a7362097c7c65ee490a758b442acd5c80c6fce4b148c6a391e946b45131365b'.decode(
-    #     'hex')
+    go_bootstrap = 'enode://6cdd090303f394a1cac34ecc9f7cda18127eafa2a3a06de39f6d920b0e583e062a7362097c7c65ee490a758b442acd5c80c6fce4b148c6a391e946b45131365b@54.169.166.226:30303'
 
-    # cpp
-    # r_ip = '5.1.83.226'
-    # r_port = 30303
-    # r_pubkey = '4a44599974518ea5b0f14c31c4463692ac0329cb84851f3435e6d1b18ee4eae4aa495f846a0fa1219bd58035671881d44423876e57db2abd57254d0197da0ebe'.decode(
-    #     'hex')
+    cpp_bootstrap = 'enode://4a44599974518ea5b0f14c31c4463692ac0329cb84851f3435e6d1b18ee4eae4aa495f846a0fa1219bd58035671881d44423876e57db2abd57254d0197da0ebe@5.1.83.226:30303'
 
-    r_address = discovery.Address(r_ip, r_port)
-    r_node = discovery.Node(r_pubkey, r_address)
+    r_node = node_by_uri(go_bootstrap)
+    print "remote node is", r_node
     # add node to the routing table
-    app.services.discovery.protocol.kademlia.routing.add_node(r_node)
+    kademlia.k_request_timeout = 20.
+    print "TEST PING BOOTSTRAPPING NODE"
+    proto.ping(r_node)
+    gevent.sleep(2.)
+    print "TEST BOOTSTRAP"
+    proto.bootstrap([r_node])
+    gevent.sleep(2.)
+    print "TEST FIND_NODE"
+    proto.find_node(this_node.id)
+    gevent.sleep(1.)
 
-    # app.services.discovery.protocol.kademlia.update(r_node)
-    # app.services.discovery.protocol.kademlia.bootstrap([r_node])
-
-    app.services.discovery.protocol.kademlia.ping(r_node)
-    while True:
-        # app.services.discovery.protocol.kademlia.ping(r_node)
-        gevent.sleep(0.0123)
+    while len(proto.routing) < 5:
+        print 'num nodes', len(proto.routing)
+        print 'TEST FIND MORE NODES (kill me)'
+        proto.find_node(this_node.id)
+        gevent.sleep(1)
 
 
 if __name__ == '__main__':
