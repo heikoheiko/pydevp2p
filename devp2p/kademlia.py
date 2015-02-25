@@ -293,6 +293,7 @@ class KademliaProtocol(object):
         self.routing = RoutingTable(node)
         self._expected_pongs = dict()  # pingid -> (timeout, node, replacement_node)
         self._find_requests = dict()  # nodeid -> timeout
+        self._deleted_pingids = set()
 
     def bootstrap(self, nodes):
         assert isinstance(nodes, list)
@@ -350,15 +351,22 @@ class KademliaProtocol(object):
             log.debug('node is self', remoteid=node)
             return
 
+        def _expected_pongs():
+            return set(v[1] for v in self._expected_pongs.values())
+
         if pingid and pingid not in self._expected_pongs:
-            log.debug('unexpected pong', remoteid=node,
-                      num_expected=self._expected_pongs, pingid=pingid)
+            log.debug('surprising pong', remoteid=node,
+                      expected=_expected_pongs(), pingid=pingid.encode('hex')[:8])
+            if pingid in self._deleted_pingids:
+                log.debug('surprising pong was deleted')
             return
 
         # check for timed out pings and eventually evict them
         for _pingid, (timeout, _node, replacement) in self._expected_pongs.items():
             if time.time() > timeout:
-                log.debug('deleting timedout node', remoteid=_node)
+                log.debug('deleting timedout node', remoteid=_node,
+                          pingid=_pingid.encode('hex')[:8])
+                self._deleted_pingids.add(_pingid)  # FIXME this is for testing
                 del self._expected_pongs[_pingid]
                 self.routing.remove_node(_node)
                 if replacement:
