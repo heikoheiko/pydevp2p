@@ -15,7 +15,8 @@ Aside from the previously described exclusions, node discovery closely follows s
 and protocol described by Maymounkov and Mazieres.
 """
 
-import rlp
+from rlp import big_endian_to_int, int_to_big_endian
+from crypto import sha3
 import operator
 import time
 import slogging
@@ -37,10 +38,12 @@ class Node(object):
     def __init__(self, pubkey):
         assert len(pubkey) == 64 and isinstance(pubkey, str)
         self.pubkey = pubkey
-        self.id = rlp.big_endian_to_int(pubkey)
+        self.id = big_endian_to_int(pubkey)
+        self.sha3_id = big_endian_to_int(sha3(pubkey))
 
     def distance(self, other):
         return self.id ^ other.id
+        # return self.sha3_id ^ other.sha3_id
 
     def __eq__(self, other):
         return self.pubkey == other.pubkey
@@ -50,7 +53,7 @@ class Node(object):
 
     @classmethod
     def from_id(cls, id):
-        pubk = rlp.int_to_big_endian(id)
+        pubk = int_to_big_endian(id)
         pubk = (64 - len(pubk)) * '\0' + pubk
         return cls(pubk)
 
