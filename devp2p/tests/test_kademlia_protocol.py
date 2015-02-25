@@ -392,23 +392,24 @@ def test_two():
 
 
 def test_many():
-    num_nodes = 5
+    WireMock.empty()
+    num_nodes = 17
+    assert num_nodes >= kademlia.k_bucket_size + 1
     protos = []
     for i in range(num_nodes):
         protos.append(get_wired_protocol())
     bootstrap = protos[0]
     wire = bootstrap.wire
-    for p in protos[1:]:
-        p.ping(bootstrap.this_node)
-    wire.process(protos)
 
+    # bootstrap
     for p in protos[1:]:
         p.bootstrap([bootstrap.this_node])
-    wire.process(protos)
+        wire.process(protos)  # successively add nodes
 
+    # now everbody does a find node to fill the buckets
     for p in protos[1:]:
         p.find_node(p.this_node.id)
-    wire.process(protos)
+        wire.process(protos)  # can all send in parallel
 
     for i, p in enumerate(protos):
         # print i, len(p.routing)
@@ -419,3 +420,8 @@ def test_many():
 wire needs to send correct sender
 somehow bind wire to nodes to add sender
 """
+
+if __name__ == '__main__':
+    import pyethereum.slogging
+    pyethereum.slogging.configure(config_string=':debug')
+    test_many()
