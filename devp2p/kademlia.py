@@ -474,13 +474,17 @@ class KademliaProtocol(object):
         # we don't map requests to responses, thus forwarding to all FIXME
         for nodeid, timeout in self._find_requests.items():
             target = Node.from_id(nodeid)
-            closest = sorted(neighbours, key=operator.methodcaller('distance', target))[0]
+            closest = sorted(neighbours, key=operator.methodcaller('distance', target))
             if time.time() < timeout:
-                closest_known = self.routing.neighbours(target)[0]
-                if closest.distance(target) < closest_known.distance(target):
-                    log.debug('forwarding find request', closest=closest,
-                              closest_known=closest_known)
-                    self.wire.send_find_node(closest, target.pubkey)
+                closest_known = self.routing.neighbours(target)
+                closest_known = closest_known[0] if closest_known else None
+                assert closest_known != self.this_node
+                # send find_node requests to k_find_concurrency closests
+                for close_node in closest[:k_find_concurrency]:
+                    if not closest_known or close_node.distance(target) < closest_known.distance(target):
+                        log.debug('forwarding find request', closest=close_node,
+                                  closest_known=closest_known)
+                        self.wire.send_find_node(close_node, target.pubkey)
 
         # add all nodes to the list
         for node in neighbours:
@@ -491,6 +495,7 @@ class KademliaProtocol(object):
         assert isinstance(remote, Node)
         assert len(targetid) == 512 / 8
         assert isinstance(targetid, str)
+        self.update(remote)
         found = self.routing.neighbours(Node(targetid))
         log.debug('recv find_node', remoteid=remote, found=len(found))
         self.wire.send_neighbours(remote, found)
