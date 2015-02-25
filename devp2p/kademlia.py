@@ -299,8 +299,7 @@ class KademliaProtocol(object):
         assert isinstance(nodes, list)
         for node in nodes:
             self.routing.add_node(node)
-            self.ping(node)
-        self.find_node(self.this_node.id)
+            self.find_node(self.this_node.id, via_node=node)
 
     def update(self, node, pingid=None):
         """
@@ -443,11 +442,15 @@ class KademliaProtocol(object):
         for n in self.routing.neighbours(node)[:k_find_concurrency]:
             self.wire.send_find_node(n, node.pubkey)
 
-    def find_node(self, targetid):
+    def find_node(self, targetid, via_node=None):
         assert isinstance(targetid, long)
+        assert not via_node or isinstance(via_node, Node)
         self._find_requests[targetid] = time.time() + k_request_timeout
-        self._query_neighbours(targetid)
-        # FIXME, should we return the closest node
+        if via_node:
+            self.wire.send_find_node(via_node, Node.from_id(targetid).pubkey)
+        else:
+            self._query_neighbours(targetid)
+        # FIXME, should we return the closest node (allow callbacks on find_request)
 
     def recv_neighbours(self, remote, neighbours):
         """
