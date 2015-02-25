@@ -419,21 +419,24 @@ class KademliaProtocol(object):
         assert isinstance(node, Node)
         assert node != self.this_node
         log.debug('pinging', remote=node, local=self.this_node)
-        pingid = self.wire.send_ping(node)
+        echoed = self.wire.send_ping(node)
+        pingid = sha3(echoed + node.pubkey)
         assert pingid
         timeout = time.time() + k_request_timeout
-        log.debug('set wait for pong from', remote=node, local=self.this_node)
+        log.debug('set wait for pong from', remote=node, local=self.this_node,
+                  pingid=pingid.encode('hex')[:4])
         self._expected_pongs[pingid] = (timeout, node, replacement)
 
-    def recv_ping(self, remote, pingid):
+    def recv_ping(self, remote, echoed):
         assert isinstance(remote, Node)
         assert remote != self.this_node
-        log.debug('recv ping', remote=remote, pingid=pingid.encode('hex')[:4], local=self.this_node)
+        log.debug('recv ping', remote=remote, local=self.this_node)
         self.update(remote)
-        self.wire.send_pong(remote, pingid)
+        self.wire.send_pong(remote, echoed)
 
-    def recv_pong(self, remote, pingid):
+    def recv_pong(self, remote, echoed):
         assert remote != self.this_node
+        pingid = sha3(echoed + remote.pubkey)
         log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:4], local=self.this_node)
         self.update(remote, pingid)
 
