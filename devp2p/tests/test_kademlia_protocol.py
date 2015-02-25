@@ -16,9 +16,10 @@ class WireMock(kademlia.WireInterface):
         self.sender = sender
         assert not self.messages
 
-    def empty(self):
-        while self.messages:
-            self.messages.pop()
+    @classmethod
+    def empty(cls):
+        while cls.messages:
+            cls.messages.pop()
 
     def send_ping(self, node):
         ping_id = hex(random.randint(0, 2**256))[-32:]
@@ -84,6 +85,18 @@ def get_wired_protocol():
     return kademlia.KademliaProtocol(this_node, WireMock(this_node))
 
 
+def test_bootstrap():
+    proto = get_wired_protocol()
+    wire = proto.wire
+    other = routing_table()
+    # lookup self
+    proto.bootstrap(nodes=[other.this_node])
+    msg = wire.poll(other.this_node)
+    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
+    assert wire.poll(other.this_node) is None
+    assert wire.messages == []
+
+
 def test_setup():
     """
     nodes connect to any peer and do a lookup for them selfs
@@ -95,8 +108,6 @@ def test_setup():
 
     # lookup self
     proto.bootstrap(nodes=[other.this_node])
-    msg = wire.poll(other.this_node)
-    assert msg[0] == 'ping'
     msg = wire.poll(other.this_node)
     assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
     assert wire.poll(other.this_node) is None
@@ -127,8 +138,6 @@ def test_find_node_timeout():
 
     # lookup self
     proto.bootstrap(nodes=[other.this_node])
-    msg = wire.poll(other.this_node)
-    assert msg[0] == 'ping'
     msg = wire.poll(other.this_node)
     assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
     assert wire.poll(other.this_node) is None
@@ -353,12 +362,10 @@ def test_eviction_node_split():
 def test_ping_adds_sender():
     p = get_wired_protocol()
     assert len(p.routing) == 0
-    n = random_node()
-    p.recv_ping(n, 'some id')
-    assert len(p.routing) == 1
-    n = random_node()
-    p.recv_ping(n, 'some id2')
-    assert len(p.routing) == 2
+    for i in range(10):
+        n = random_node()
+        p.recv_ping(n, 'some id %d' % i)
+        assert len(p.routing) == i + 1
     p.wire.empty()
 
 
