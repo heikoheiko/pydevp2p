@@ -348,7 +348,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         Addresses can only be learned by ping messages
         """
         # address = Address.from_endpoint(payload[0])
-        address = Address.from_binary(payload)
+        address = Address.from_binary(*payload)
         node = self.get_node(nodeid, address)
         log.debug('<<< ping', remoteid=node)
         self.kademlia.recv_ping(node, pingid=mdc)
@@ -447,11 +447,16 @@ class DiscoveryProtocol(kademlia.WireInterface):
         assert isinstance(neighbours_lst, list)
         log.debug('<<< neigbours', remoteid=node, count=len(neighbours_lst))
         neighbours = []
+        neighbours_set = set(tuple(x) for x in neighbours_lst)
+        if len(neighbours_set) < len(neighbours_lst):
+            log.warn('received duplicates')
 
         # for (nodeid, ip, port) in neighbours_lst:
-        for (ip, port, nodeid) in neighbours_lst:
-            address = Address(ip, struct.unpack('>H', port))
+        for (ip, port, nodeid) in neighbours_set:
+            port = struct.unpack('>H', port)[0]
+            address = Address(ip, port)
             node = self.get_node(nodeid, address)
+            assert node.address
             neighbours.append(node)
         self.kademlia.recv_neighbours(node, neighbours)
 
