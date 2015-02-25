@@ -211,16 +211,16 @@ class RoutingTable(object):
         self.bucket_by_node(node).remove_node(node)
 
     def add_node(self, node):
-        #log.debug('add_node', node=node)
+        # log.debug('add_node', node=node)
         bucket = self.bucket_by_node(node)
         eviction_candidate = bucket.add_node(node)
         if eviction_candidate:  # bucket is full
-            #log.debug('bucket is full', node=node, eviction_candidate=eviction_candidate)
+            # log.debug('bucket is full', node=node, eviction_candidate=eviction_candidate)
             # split if the bucket has the local node in its range
             # or if the depth is not congruent to 0 mod k_b
             depth = bucket.depth
             if bucket.in_range(self.this_node) or (depth % k_b != 0 and depth != k_id_size):
-                #log.debug('splitting bucket')
+                # log.debug('splitting bucket')
                 self.split_bucket(bucket)
                 return self.add_node(node)  # retry
             # nothing added, ping eviction_candidate
@@ -328,6 +328,24 @@ class KademliaProtocol(object):
         assert isinstance(node, Node)
         log.debug('in update', remoteid=node, localid=self.this_node)
 
+        # check node is not self
+
+        # if ping was expected
+            # if it is not timed out
+                # add to bucket
+                    # optinally set replacement
+
+        # check for not full buckets
+            # ping nodes from replacement cache
+
+        # check for inactive buckets
+            # ping nodes
+
+        # prune timed out find_list
+
+        # prune timed out expected_ping list
+            # ping replacements
+
         if node == self.this_node:
             log.debug('node is self', remoteid=node)
             return
@@ -353,7 +371,7 @@ class KademliaProtocol(object):
         # if we had registered this node for eviction test
         if pingid in self._expected_pongs:
             timeout, _node, replacement = self._expected_pongs[pingid]
-            log.debug('received expect pong', remoteid=node)
+            log.debug('received expected pong', remoteid=node)
             if replacement:
                 log.debug('adding replacement to cache', remoteid=replacement)
                 self.routing.bucket_by_node(replacement).replacement_cache.append(replacement)
@@ -382,6 +400,8 @@ class KademliaProtocol(object):
         for nodeid, timeout in self._find_requests.items():
             if time.time() > timeout:
                 del self._find_requests[nodeid]
+
+        log.debug('updated', num_nodes=len(self.routing), num_buckets=len(self.routing.buckets))
 
     def ping(self, node, replacement=None):
         """
@@ -429,7 +449,8 @@ class KademliaProtocol(object):
         add all nodes to the list
         """
         assert isinstance(neighbours, list)
-        log.debug('recv neighbours', remoteid=remote, num=len(neighbours), local=self.this_node)
+        log.debug('recv neighbours', remoteid=remote, num=len(
+            neighbours), local=self.this_node, neighbours=neighbours)
         neighbours = [n for n in neighbours if n != self.this_node]
         neighbours = [n for n in neighbours if n not in self.routing]
         if not neighbours:
