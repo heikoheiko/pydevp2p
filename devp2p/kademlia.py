@@ -45,6 +45,9 @@ class Node(object):
         return self.id ^ other.id
         # return self.sha3_id ^ other.sha3_id
 
+    def id_distance(self, id):
+        return self.id ^ id
+
     def __eq__(self, other):
         return self.pubkey == other.pubkey
 
@@ -248,7 +251,7 @@ class RoutingTable(object):
             for n in b.nodes:
                 yield n
 
-    def neighbours(self, node, k=k_bucket_size):
+    def _DEACTIVATED_neighbours(self, node, k=k_bucket_size):
         """
         sorting by bucket.midpoint does not work in edge cases
         build a short list of k * 2 nodes and sort and shorten it
@@ -261,6 +264,14 @@ class RoutingTable(object):
                     nodes.append(n)
                     if len(nodes) == k * 2:
                         break
+        return sorted(nodes, key=operator.methodcaller('distance', node))[:k]
+
+    def neighbours(self, node, k=k_bucket_size):
+        """
+        naive correct version simply compares all nodes
+        """
+        assert isinstance(node, Node)
+        nodes = list(self)
         return sorted(nodes, key=operator.methodcaller('distance', node))[:k]
 
 
