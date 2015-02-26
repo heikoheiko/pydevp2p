@@ -391,9 +391,8 @@ def test_two():
     wire.empty()
 
 
-def test_many():
+def test_many(num_nodes=17):
     WireMock.empty()
-    num_nodes = 17
     assert num_nodes >= kademlia.k_bucket_size + 1
     protos = []
     for i in range(num_nodes):
@@ -415,7 +414,7 @@ def test_many():
         # print i, len(p.routing)
         assert len(p.routing) >= kademlia.k_bucket_size
 
-
+    return protos
 """
 wire needs to send correct sender
 somehow bind wire to nodes to add sender
