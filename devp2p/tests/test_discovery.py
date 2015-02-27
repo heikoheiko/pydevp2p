@@ -201,17 +201,9 @@ def test_bootstrap_udp():
             assert num >= num_apps - 1
 
 
-def node_by_uri(uri):
-    scheme = 'enode://'
-    assert uri.startswith(scheme) and '@' in uri and ':' in uri
-    pubkey, ip_port = uri[len(scheme):].split('@')
-    ip, port = ip_port.split(':')
-    return discovery.Node(pubkey.decode('hex'), discovery.Address(ip, int(port)))
-
-
 def main():
     "test connecting nodes"
-    app = get_app(30303, 'theapp')
+    app = get_app(30304, 'theapp')
     #app.config.set('p2p', 'listen_host', '127.0.0.1')
     app.config.set('p2p', 'listen_host', '0.0.0.0')
     app.start()
@@ -225,13 +217,21 @@ def main():
 
     # add external node
 
-    local = 'enode://ab16b8c7fc1febb74ceedf1349944ffd4a04d11802451d02e808f08cb3b0c1c1a9c4e1efb7d309a762baa4c9c8da08890b3b712d1666b5b630d6c6a09cbba171@127.0.0.1:40404'
+    go_local = 'enode://ab16b8c7fc1febb74ceedf1349944ffd4a04d11802451d02e808f08cb3b0c1c1a9c4e1efb7d309a762baa4c9c8da08890b3b712d1666b5b630d6c6a09cbba171@127.0.0.1:30303'
 
     go_bootstrap = 'enode://6cdd090303f394a1cac34ecc9f7cda18127eafa2a3a06de39f6d920b0e583e062a7362097c7c65ee490a758b442acd5c80c6fce4b148c6a391e946b45131365b@54.169.166.226:30303'
 
     cpp_bootstrap = 'enode://4a44599974518ea5b0f14c31c4463692ac0329cb84851f3435e6d1b18ee4eae4aa495f846a0fa1219bd58035671881d44423876e57db2abd57254d0197da0ebe@5.1.83.226:30303'
 
-    r_node = node_by_uri(go_bootstrap)
+    n1 = 'enode://1d799d32547761cf66250f94b4ac1ebfc3246ce9bd87fbf90ef8d770faf48c4d96290ea0c72183d6c1ddca3d2725dad018a6c1c5d1971dbaa182792fa937e89d@162.247.54.200:1024'
+    n2 = 'enode://1976e20d6ec2de2dd4df34d8e949994dc333da58c967c62ca84b4d545d3305942207565153e94367f5d571ef79ce6da93c5258e88ca14788c96fbbac40f4a4c7@52.0.216.64:30303'
+    n3 = 'enode://14bb48727c8a103057ba06cc010c810e9d4beef746c54d948b681218195b3f1780945300c2534d422d6069f7a0e378c450db380f8efff8b4eccbb48c0c5bb9e8@179.218.168.19:30303'
+
+    nb = 'enode://1976e20d6ec2de2dd4df34d8e949994dc333da58c967c62ca84b4d545d3305942207565153e94367f5d571ef79ce6da93c5258e88ca14788c96fbbac40f4a4c7@52.0.216.64:30303'
+
+    node_uri = go_local
+
+    r_node = discovery.Node.from_uri(node_uri)
     print "remote node is", r_node
     # add node to the routing table
     kademlia.k_request_timeout = 20.
@@ -245,14 +245,35 @@ def main():
     proto.find_node(this_node.id)
     gevent.sleep(1.)
 
+    pinged = lambda: set(n for t, n, r in proto._expected_pongs.values())
+
     while len(proto.routing) < 5:
         print 'num nodes', len(proto.routing)
         print 'TEST FIND MORE NODES (kill me)'
-        proto.find_node(this_node.id)
-        gevent.sleep(1)
+        gevent.sleep(2)
+        # proto.find_node(this_node.id)
+        for node in proto.routing:
+            proto.ping(node)
+        # proto.find_node(this_node.id)
+        break
+
+    print 'nodes in routing'
+    for node in proto.routing:
+        print node.to_uri()
+    print 'nodes we are waiting for pongs'
+
+    for node in pinged():
+        print node.to_uri()
 
 
 if __name__ == '__main__':
     import pyethereum.slogging
     pyethereum.slogging.configure(config_string=':debug')
     main()
+
+
+"""
+unexpected pongs from cpp client
+versions would be good
+i get a ping reply by 2 nodes
+"""
