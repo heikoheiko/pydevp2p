@@ -101,12 +101,25 @@ class Address(object):
 
 class Node(kademlia.Node):
 
+    scheme = 'enode://'
+
     def __init__(self, pubkey, address=None):
         kademlia.Node.__init__(self, pubkey)
         assert address is None or isinstance(address, Address)
         self.address = address
         self.reputation = 0
         self.rlpx_version = 0
+
+    @classmethod
+    def from_uri(cls, uri):
+        assert uri.startswith(cls.scheme) and '@' in uri and ':' in uri
+        pubkey, ip_port = uri[len(cls.scheme):].split('@')
+        ip, port = ip_port.split(':')
+        return cls(pubkey.decode('hex'), Address(ip, int(port)))
+
+    def to_uri(self):
+        return '%s%s@%s:%d' % (self.scheme, self.pubkey.encode('hex'),
+                               self.address.ip, self.address.port)
 
 
 class DiscoveryProtocolTransport(object):
