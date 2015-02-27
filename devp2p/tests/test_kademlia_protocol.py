@@ -61,8 +61,8 @@ class WireMock(kademlia.WireInterface):
 
 
 def random_pubkey():
-    pk = int_to_big_endian(random.getrandbits(kademlia.k_id_size))
-    return '\x00' * (kademlia.k_id_size / 8 - len(pk)) + pk
+    pk = int_to_big_endian(random.getrandbits(kademlia.k_pubkey_size))
+    return '\x00' * (kademlia.k_pubkey_size / 8 - len(pk)) + pk
 
 
 def random_node():
@@ -92,7 +92,7 @@ def test_bootstrap():
     # lookup self
     proto.bootstrap(nodes=[other.this_node])
     msg = wire.poll(other.this_node)
-    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
+    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.id)
     assert wire.poll(other.this_node) is None
     assert wire.messages == []
 
@@ -109,18 +109,18 @@ def test_setup():
     # lookup self
     proto.bootstrap(nodes=[other.this_node])
     msg = wire.poll(other.this_node)
-    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
+    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.id)
     assert wire.poll(other.this_node) is None
     assert wire.messages == []
 
     # respond with neighbours
-    closest = other.neighbours(kademlia.Node(msg[2]))
+    closest = other.neighbours(msg[2])
     assert len(closest) == kademlia.k_bucket_size
     proto.recv_neighbours(random_node(), closest)
 
     # expect another lookup
     msg = wire.poll(closest[0])
-    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
+    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.id)
 
     # and pings for all nodes
     for node in closest:
@@ -139,7 +139,7 @@ def test_find_node_timeout():
     # lookup self
     proto.bootstrap(nodes=[other.this_node])
     msg = wire.poll(other.this_node)
-    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.pubkey)
+    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.id)
     assert wire.poll(other.this_node) is None
     assert wire.messages == []
 

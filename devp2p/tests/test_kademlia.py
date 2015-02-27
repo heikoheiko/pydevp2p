@@ -9,8 +9,8 @@ random.seed(42)
 
 
 def random_pubkey():
-    pk = int_to_big_endian(random.getrandbits(kademlia.k_id_size))
-    return '\x00' * (kademlia.k_id_size / 8 - len(pk)) + pk
+    pk = int_to_big_endian(random.getrandbits(kademlia.k_pubkey_size))
+    return '\x00' * (kademlia.k_pubkey_size / 8 - len(pk)) + pk
 
 
 def random_node():
@@ -41,6 +41,13 @@ def test_node():
     assert not l
 
 
+def fake_node_from_id(id):
+    "warning, pubkey is not the hashed source for the id"
+    node = random_node()
+    node.id = id
+    return node
+
+
 def test_split():
     node = random_node()
     routing = kademlia.RoutingTable(node)
@@ -48,14 +55,16 @@ def test_split():
 
     # create very close node
     for i in range(kademlia.k_bucket_size):
-        node = kademlia.Node(int_to_big_endian(node.id + 1))
+        # node = kademlia.Node(int_to_big_endian(node.id + 1))
+        node = fake_node_from_id(node.id + 1)
         assert routing.buckets[0].in_range(node)
         routing.add_node(node)
         assert len(routing.buckets) == 1
 
     assert len(routing.buckets[0]) == kademlia.k_bucket_size
 
-    node = kademlia.Node(int_to_big_endian(node.id + 1))
+    # node = kademlia.Node(int_to_big_endian(node.id + 1))
+    node = fake_node_from_id(node.id + 1)
     assert routing.buckets[0].in_range(node)
     routing.add_node(node)
     assert len(routing.buckets[0]) <= kademlia.k_bucket_size
@@ -78,7 +87,8 @@ def test_split2():
     bucket = full_buckets[0]
     assert not bucket.should_split
     assert len(bucket) == kademlia.k_bucket_size
-    node = kademlia.Node.from_id(bucket.start + 1)  # should not split
+    # node = kademlia.Node.from_id(bucket.start + 1)  # should not split
+    node = fake_node_from_id(bucket.start + 1)
     assert node not in bucket
     assert bucket.in_range(node)
     assert bucket == routing.bucket_by_node(node)
@@ -117,12 +127,13 @@ def test_neighbours():
 
     for i in range(100):  # also passed w/ 10k
         node = random_node()
+        assert isinstance(node, kademlia.Node)
         nearest_bucket = routing.buckets_by_distance(node)[0]
         if not nearest_bucket.nodes:
             continue
         # change nodeid, to something in this bucket.
         node_a = nearest_bucket.nodes[0]
-        node_b = kademlia.Node.from_id(node_a.id + 1)
+        node_b = fake_node_from_id(node_a.id + 1)
         assert node_a == routing.neighbours(node_b)[0]
         node_b.id = node_a.id - 1
         assert node_a == routing.neighbours(node_b)[0]
