@@ -443,12 +443,12 @@ class KademliaProtocol(object):
                   pingid=pingid.encode('hex')[:4])
         self._expected_pongs[pingid] = (timeout, node, replacement)
 
-    def recv_ping(self, remote, echoed):
+    def recv_ping(self, remote, echo):
         assert isinstance(remote, Node)
         assert remote != self.this_node
         log.debug('recv ping', remote=remote, local=self.this_node)
         self.update(remote)
-        self.wire.send_pong(remote, echoed)
+        self.wire.send_pong(remote, echo)
 
     def recv_pong(self, remote, echoed):
         assert remote != self.this_node

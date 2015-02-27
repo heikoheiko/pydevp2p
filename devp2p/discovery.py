@@ -359,7 +359,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         address = Address.from_binary(*payload)
         node = self.get_node(nodeid, address)
         log.debug('<<< ping', remoteid=node)
-        self.kademlia.recv_ping(node, pingid=mdc)
+        self.kademlia.recv_ping(node, echo=mdc)
 
     def send_pong(self, node, token):
         """
