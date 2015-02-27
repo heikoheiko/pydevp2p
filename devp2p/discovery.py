@@ -488,6 +488,7 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
     def __init__(self, app):
         BaseService.__init__(self, app)
         log.info('NodeDiscovery init')
+        # man setsockopt
         self.protocol = DiscoveryProtocol(app=self.app, transport=self)
 
     @property
@@ -495,13 +496,13 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
         return Address(self.app.config.get('p2p', 'listen_host'),
                        self.app.config.getint('p2p', 'listen_port'))
 
-    def _send(self, address, message):
-        assert isinstance(address, Address)
-        sock = gevent.socket.socket(type=gevent.socket.SOCK_DGRAM)
-        # sock.bind(('0.0.0.0', self.address.port))  # send from our recv port
-        sock.connect((address.ip, address.port))
-        log.debug('sending', size=len(message), to=address)
-        sock.send(message)
+    # def _send(self, address, message):
+    #     assert isinstance(address, Address)
+    #     sock = gevent.socket.socket(type=gevent.socket.SOCK_DGRAM)
+    # sock.bind(('0.0.0.0', self.address.port))  # send from our recv port
+    #     sock.connect((address.ip, address.port))
+    #     log.debug('sending', size=len(message), to=address)
+    #     sock.send(message)
 
     def send(self, address, message):
         assert isinstance(address, Address)

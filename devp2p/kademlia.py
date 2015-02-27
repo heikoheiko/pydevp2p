@@ -39,11 +39,10 @@ class Node(object):
         assert len(pubkey) == 64 and isinstance(pubkey, str)
         self.pubkey = pubkey
         self.id = big_endian_to_int(pubkey)
-        self.sha3_id = big_endian_to_int(sha3(pubkey))
+#        self.id = big_endian_to_int(sha3(pubkey))
 
     def distance(self, other):
         return self.id ^ other.id
-        # return self.sha3_id ^ other.sha3_id
 
     def id_distance(self, id):
         return self.id ^ id
