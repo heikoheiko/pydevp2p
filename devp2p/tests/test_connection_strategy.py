@@ -178,7 +178,7 @@ class CNodeKademliaAndClosest(CNodeBase):
         connects random nodes in the neighbourhood, then kademlia
         """
         half = self.min_peers / 2
-        for knode in self.proto.routing.neighbours(self.proto.this_node)[:half]:
+        for knode in self.proto.routing.neighbours(self.proto.this_node.id)[:half]:
             address = knode.id
             tolerance = knode.id
             self.targets.append(dict(address=address, tolerance=tolerance, connected=False))
@@ -352,7 +352,7 @@ def main(num_nodes):
     klasses = [CNodeRandom, CNodeRandomClose,
                CNodeEqualFingers, CNodeKademlia,
                CNodeKademliaAndClosest]
-    klasses = [CNodeRandomClosest]
+#    klasses = [CNodeKademlia]
 
     results = []
     for min_peers in (5, 7, 9):

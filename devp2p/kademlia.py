@@ -285,9 +285,9 @@ class RoutingTable(object):
     #     """
     #     naive correct version simply compares all nodes
     #     """
-    #     assert isinstance(node, Node)
+    #     assert isinstance(node, long)
     #     nodes = list(self)
-    #     return sorted(nodes, key=operator.methodcaller('distance', node))[:k]
+    #     return sorted(nodes, key=operator.methodcaller('id_distance', node))[:k]
 
 
 class WireInterface(object):
