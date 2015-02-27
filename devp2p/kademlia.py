@@ -255,7 +255,7 @@ class RoutingTable(object):
             for n in b.nodes:
                 yield n
 
-    def _DEACTIVATED_neighbours(self, node, k=k_bucket_size):
+    def neighbours(self, node, k=k_bucket_size):
         """
         sorting by bucket.midpoint does not work in edge cases
         build a short list of k * 2 nodes and sort and shorten it
@@ -270,13 +270,13 @@ class RoutingTable(object):
                         break
         return sorted(nodes, key=operator.methodcaller('distance', node))[:k]
 
-    def neighbours(self, node, k=k_bucket_size):
-        """
-        naive correct version simply compares all nodes
-        """
-        assert isinstance(node, Node)
-        nodes = list(self)
-        return sorted(nodes, key=operator.methodcaller('distance', node))[:k]
+    # def neighbours(self, node, k=k_bucket_size):
+    #     """
+    #     naive correct version simply compares all nodes
+    #     """
+    #     assert isinstance(node, Node)
+    #     nodes = list(self)
+    #     return sorted(nodes, key=operator.methodcaller('distance', node))[:k]
 
 
 class WireInterface(object):
@@ -483,9 +483,6 @@ class KademliaProtocol(object):
             neighbours), local=self.this_node, neighbours=neighbours)
         neighbours = [n for n in neighbours if n != self.this_node]
         neighbours = [n for n in neighbours if n not in self.routing]
-        if not neighbours:
-            log.debug('no new neighbours')
-            return
 
         # we don't map requests to responses, thus forwarding to all FIXME
         for nodeid, timeout in self._find_requests.items():
