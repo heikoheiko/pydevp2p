@@ -1,3 +1,23 @@
+"""
+installation:
+
+    git clone git@github.com:heikoheiko/pydevp2p.git
+    git co sha3id
+    python setup.py develop
+    pip install statistics networkx matplotlib
+
+usage:
+    cd devp2p/tests/
+    python test_connections_stratgy.py <num_nodes>
+
+    you probably want to adjust  `min_peer_options` and `klasses`
+    in the `main` function (end of file)
+
+implementing strategies:
+    inherit form CNodeBase and implement .setup_targets()
+    add your class to `klasses` in the `main` function.
+"""
+
 import time
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -349,13 +369,17 @@ def print_results(results=[]):
 
 
 def main(num_nodes):
+    # strategies to test
     klasses = [CNodeRandom, CNodeRandomClose,
                CNodeEqualFingers, CNodeKademlia,
                CNodeKademliaAndClosest]
-#    klasses = [CNodeKademlia]
+    # min_peer settings to test
+    min_peer_options = (5, 7, 9)
+
+    print 'running %d simulations' % (len(min_peer_options) * len(klasses))
 
     results = []
-    for min_peers in (5, 7, 9):
+    for min_peers in min_peer_options:
         max_peers = min_peers * 2
         for node_class in klasses:
             p = OrderedDict(node_class=node_class)
@@ -381,10 +405,6 @@ if __name__ == '__main__':
 
 """
 todos:
-    weird results:
-        switch to sha3(pubkey) new branch
-        speedup find_node (probably expensive sorting)
-
     colorize nodes being closest to 0, 1/4, 1/2, 3/4 of the id space
     validate graph (assert bidirectional connections, max_peers satisfactions)
     support alanlytics about nodes added to an established network
