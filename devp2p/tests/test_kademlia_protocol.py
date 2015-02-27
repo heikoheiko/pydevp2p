@@ -415,10 +415,23 @@ def test_many(num_nodes=17):
         assert len(p.routing) >= kademlia.k_bucket_size
 
     return protos
-"""
-wire needs to send correct sender
-somehow bind wire to nodes to add sender
-"""
+
+
+def test_find_closest(num_nodes=50):
+    """
+    assert, that nodes find really the closest of all nodes
+    """
+    num_tests = 10
+    protos = test_many(num_nodes)
+    all_nodes = [p.this_node for p in protos]
+    for i, p in enumerate(protos[:num_tests]):
+        for j, node in enumerate(all_nodes):
+            if p.this_node == node:
+                continue
+            p.find_node(node.id)
+            p.wire.process(protos)
+            assert p.routing.neighbours(node)[0] == node
+
 
 if __name__ == '__main__':
     import pyethereum.slogging
