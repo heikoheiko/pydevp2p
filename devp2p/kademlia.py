@@ -51,6 +51,9 @@ class Node(object):
     def __eq__(self, other):
         return self.pubkey == other.pubkey
 
+    def __ne__(self, other):
+        return not bool(self.pubkey == other.pubkey)
+
     def __repr__(self):
         return '<Node(%s)>' % self.pubkey[:4].encode('hex')
 
@@ -214,6 +217,7 @@ class RoutingTable(object):
         self.bucket_by_node(node).remove_node(node)
 
     def add_node(self, node):
+        assert node != self.this_node
         # log.debug('add_node', node=node)
         bucket = self.bucket_by_node(node)
         eviction_candidate = bucket.add_node(node)
@@ -309,6 +313,7 @@ class KademliaProtocol(object):
     def bootstrap(self, nodes):
         assert isinstance(nodes, list)
         for node in nodes:
+            assert node != self.this_node
             self.routing.add_node(node)
             self.find_node(self.this_node.id, via_node=node)
 
