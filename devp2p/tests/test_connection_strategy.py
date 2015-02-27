@@ -66,7 +66,7 @@ class CNodeBase(object):
         for t in (t for t in self.targets if not t['connected']):
             if len(self.connections) >= self.max_peers:
                 break
-            for knode in self.proto.routing.neighbours(devp2p.kademlia.Node.from_id(t['address'])):
+            for knode in self.proto.routing.neighbours(t['address']):
                 assert isinstance(knode, devp2p.kademlia.Node)
                 # assure within tolerance
                 if knode.id_distance(t['address']) < t['tolerance']:

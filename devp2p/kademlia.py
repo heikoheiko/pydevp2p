@@ -29,7 +29,8 @@ k_bucket_size = 16
 k_request_timeout = 300 / 1000.          # timeout of finde_node lookups
 k_idle_bucket_refresh_interval = 3600    # ping all nodes in bucket if bucket was idle
 k_find_concurrency = 3                   # parallel find node lookups
-k_id_size = 512
+k_pubkey_size = 512
+k_id_size = 256
 k_max_node_id = 2 ** k_id_size - 1
 
 
@@ -38,8 +39,8 @@ class Node(object):
     def __init__(self, pubkey):
         assert len(pubkey) == 64 and isinstance(pubkey, str)
         self.pubkey = pubkey
-        self.id = big_endian_to_int(pubkey)
-#        self.id = big_endian_to_int(sha3(pubkey))
+#        self.id = big_endian_to_int(pubkey)
+        self.id = big_endian_to_int(sha3(pubkey))
 
     def distance(self, other):
         return self.id ^ other.id
@@ -56,11 +57,11 @@ class Node(object):
     def __repr__(self):
         return '<Node(%s)>' % self.pubkey[:4].encode('hex')
 
-    @classmethod
-    def from_id(cls, id):
-        pubk = int_to_big_endian(id)
-        pubk = (64 - len(pubk)) * '\0' + pubk
-        return cls(pubk)
+    # @classmethod
+    # def __from_id(cls, id):
+    #     pubk = int_to_big_endian(id)
+    #     pubk = (64 - len(pubk)) * '\0' + pubk
+    #     return cls(pubk)
 
 
 class KBucket(object):
@@ -93,8 +94,12 @@ class KBucket(object):
     def distance(self, node):
         return self.midpoint ^ node.id
 
-    def nodes_by_distance(self, node):
-        return sorted(self.nodes, key=operator.methodcaller('distance', node))
+    def id_distance(self, id):
+        return self.midpoint ^ id
+
+    def nodes_by_id_distance(self, id):
+        assert isinstance(id, (int, long))
+        return sorted(self.nodes, key=operator.methodcaller('id_distance', id))
 
     @property
     def should_split(self):
@@ -240,8 +245,13 @@ class RoutingTable(object):
                 return bucket
         raise Exception
 
+    def buckets_by_id_distance(self, id):
+        assert isinstance(id, (int, long))
+        return sorted(self.buckets, key=operator.methodcaller('id_distance', id))
+
     def buckets_by_distance(self, node):
-        return sorted(self.buckets, key=operator.methodcaller('distance', node))
+        assert isinstance(node, Node)
+        return self.buckets_by_id_distance(node.id)
 
     def __contains__(self, node):
         return node in self.bucket_by_node(node)
@@ -259,15 +269,17 @@ class RoutingTable(object):
         sorting by bucket.midpoint does not work in edge cases
         build a short list of k * 2 nodes and sort and shorten it
         """
-        assert isinstance(node, Node)
+        assert isinstance(node, (Node, long, int))
+        if isinstance(node, Node):
+            node = node.id
         nodes = []
-        for bucket in self.buckets_by_distance(node):
-            for n in bucket.nodes_by_distance(node):
+        for bucket in self.buckets_by_id_distance(node):
+            for n in bucket.nodes_by_id_distance(node):
                 if n is not node:
                     nodes.append(n)
                     if len(nodes) == k * 2:
                         break
-        return sorted(nodes, key=operator.methodcaller('distance', node))[:k]
+        return sorted(nodes, key=operator.methodcaller('id_distance', node))[:k]
 
     # def neighbours(self, node, k=k_bucket_size):
     #     """
@@ -456,16 +468,15 @@ class KademliaProtocol(object):
         self.update(remote, pingid)
 
     def _query_neighbours(self, targetid):
-        node = Node.from_id(targetid)
-        for n in self.routing.neighbours(node)[:k_find_concurrency]:
-            self.wire.send_find_node(n, node.pubkey)
+        for n in self.routing.neighbours(targetid)[:k_find_concurrency]:
+            self.wire.send_find_node(n, targetid)
 
     def find_node(self, targetid, via_node=None):
         assert isinstance(targetid, long)
         assert not via_node or isinstance(via_node, Node)
         self._find_requests[targetid] = time.time() + k_request_timeout
         if via_node:
-            self.wire.send_find_node(via_node, Node.from_id(targetid).pubkey)
+            self.wire.send_find_node(via_node, targetid)
         else:
             self._query_neighbours(targetid)
         # FIXME, should we return the closest node (allow callbacks on find_request)
@@ -485,18 +496,19 @@ class KademliaProtocol(object):
 
         # we don't map requests to responses, thus forwarding to all FIXME
         for nodeid, timeout in self._find_requests.items():
-            target = Node.from_id(nodeid)
-            closest = sorted(neighbours, key=operator.methodcaller('distance', target))
+            assert isinstance(nodeid, long)
+            closest = sorted(neighbours, key=operator.methodcaller('id_distance', nodeid))
             if time.time() < timeout:
-                closest_known = self.routing.neighbours(target)
+                closest_known = self.routing.neighbours(nodeid)
                 closest_known = closest_known[0] if closest_known else None
                 assert closest_known != self.this_node
                 # send find_node requests to k_find_concurrency closests
                 for close_node in closest[:k_find_concurrency]:
-                    if not closest_known or close_node.distance(target) < closest_known.distance(target):
+                    if not closest_known or \
+                            close_node.id_distance(nodeid) < closest_known.id_distance(nodeid):
                         log.debug('forwarding find request', closest=close_node,
                                   closest_known=closest_known)
-                        self.wire.send_find_node(close_node, target.pubkey)
+                        self.wire.send_find_node(close_node, nodeid)
 
         # add all nodes to the list
         for node in neighbours:
@@ -505,9 +517,8 @@ class KademliaProtocol(object):
 
     def recv_find_node(self, remote, targetid):
         assert isinstance(remote, Node)
-        assert len(targetid) == 512 / 8
-        assert isinstance(targetid, str)
+        assert isinstance(targetid, long)
         self.update(remote)
-        found = self.routing.neighbours(Node(targetid))
+        found = self.routing.neighbours(targetid)
         log.debug('recv find_node', remoteid=remote, found=len(found))
         self.wire.send_neighbours(remote, found)
