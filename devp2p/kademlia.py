@@ -281,13 +281,13 @@ class RoutingTable(object):
                         break
         return sorted(nodes, key=operator.methodcaller('id_distance', node))[:k]
 
-    # def neighbours(self, node, k=k_bucket_size):
-    #     """
-    #     naive correct version simply compares all nodes
-    #     """
-    #     assert isinstance(node, long)
-    #     nodes = list(self)
-    #     return sorted(nodes, key=operator.methodcaller('id_distance', node))[:k]
+    def neighbours_within_distance(self, id, distance):
+        """
+        naive correct version simply compares all nodes
+        """
+        assert isinstance(id, long)
+        nodes = list(n for n in self if n.id_distance(id) <= distance)
+        return sorted(nodes, key=operator.methodcaller('id_distance', id))
 
 
 class WireInterface(object):
