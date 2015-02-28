@@ -266,7 +266,43 @@ class CNodeRandomClosest(CNodeBase):
         for i in range(self.min_peers):
             address = (self.id + i) % (self.k_max_node_id + 1)
             tolerance = self.k_max_node_id / self.min_peers
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=False))
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
+
+
+class CNodeRandomSelfLookup_NOT_WORKING(CNodeBase):
+
+    """
+    As proposed by Alex:
+        node joining the network
+        doing a self lookup
+        selects random peers from the returned peers
+
+    note: all repsonding nodes probably know the complete network,
+          but this is sensible, assuming they are way longer in the network
+
+    limits: if a node does not accept the connection, there is no backup (rarely)
+    """
+
+    def setup_targets(self):
+        proto = devp2p.kademlia.KademliaProtocol(self.proto.this_node, self.network.wire)
+        print len(self.proto.routing)
+
+        bootstrap_node = random.choice(list(self.proto.routing))
+        proto.bootstrap([bootstrap_node])
+        # process all protocols
+        all_protos = [proto] + [n.proto for n in self.network.values() if n != self]
+        self.network.wire.process(all_protos)
+        assert not self.network.wire.messages
+
+        selected = set()
+        assert len(proto.routing) >= self.min_peers, len(proto.routing)
+        for i in range(self.min_peers):
+            while True:
+                target = random.choice(list(proto.routing))
+                if target not in selected:
+                    selected.add(target)
+                    break
+            self.targets.append(dict(address=target.id, tolerance=0, connected=None))
 
 
 class CNodeEqualFingers(CNodeBase):
@@ -436,6 +472,7 @@ def simulate(node_class, set_num_nodes=20, set_min_peers=7, set_max_peers=14):
     network = OrderedDict()  # node.id -> Node
     # .process executes all messages on the network
     network.process = lambda: kademlia_protocols[0].wire.process(kademlia_protocols)
+    network.wire = kademlia_protocols[0].wire
 
     # wrap protos in connectable nodes and map via network
     for p in kademlia_protocols:
