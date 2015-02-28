@@ -46,12 +46,21 @@ class CNodeBase(object):
         self.max_peers = max_peers
         self.connections = []
         self.id = proto.this_node.id
-        # list of dict(address=long, tolerance=long, connected=bool)
+        # list of dict(address=long, tolerance=long, connected=(None or Node))
         # address is the id : long
         self.targets = list()
 
     def distance(self, other):
         return self.id ^ other.id
+
+    def outbound(self):
+        "peers this node connected to"
+        return [n['connected'] for n in self.targets if n['connected']]
+
+    def inbound(self):
+        "peers that connected this node"
+        ob = self.outbound()
+        return [n for n in self.connections if n not in ob]
 
     def receive_connect(self, other):
         if len(self.connections) == self.max_peers:
@@ -64,7 +73,9 @@ class CNodeBase(object):
     def receive_disconnect(self, other):
         assert other in self.connections
         self.connections.remove(other)
-        # FIXME find associated target and set it to t.connected = False
+        for t in self.targets:
+            if t['connected'] == other:
+                t['connected'] = None
 
     def find_targets(self):
         "call find node to fill buckets with addresses close to the target"
@@ -72,7 +83,7 @@ class CNodeBase(object):
             self.proto.find_node(t['address'])
             self.network.process()
 
-    def connect_peers(self, max_connects=0):
+    def connect_peers(self, max_connects=0, random_within_distance=False):
         """
         override to deal with situations where
             - you enter the method and have not enough slots to conenct your targets
@@ -86,7 +97,13 @@ class CNodeBase(object):
         for t in (t for t in self.targets if not t['connected']):
             if len(self.connections) >= self.max_peers:
                 break
-            for knode in self.proto.routing.neighbours(t['address']):
+            if random_within_distance:
+                candidates = self.proto.routing.neighbours_within_distance(
+                    t['address'], t['tolerance'])
+                random.shuffle(candidates)
+            else:
+                candidates = self.proto.routing.neighbours(t['address'])
+            for knode in candidates:
                 assert isinstance(knode, devp2p.kademlia.Node)
                 # assure within tolerance
                 if knode.id_distance(t['address']) < t['tolerance']:
@@ -94,7 +111,7 @@ class CNodeBase(object):
                     remote = self.network[knode.id]
                     if remote not in self.connections:
                         if remote.receive_connect(self):
-                            t['connected'] = True
+                            t['connected'] = remote
                             self.connections.append(remote)
                             num_connected += 1
                             if max_connects and num_connected == max_connects:
@@ -107,7 +124,7 @@ class CNodeBase(object):
         calculate select target distances, addresses and tolerances
         """
         for i in range(self.min_peers):
-            self.targets.append(dict(address=0, tolerance=0, connected=False))
+            self.targets.append(dict(address=0, tolerance=0, connected=None))
             # NOT IMPLEMENTED HERE
 
 
@@ -135,7 +152,7 @@ class CNodeRandom(CNodeBase):
             distance = random.randint(0, self.k_max_node_id)
             address = (self.id + distance) % (self.k_max_node_id + 1)
             tolerance = self.k_max_node_id / self.min_peers
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=False))
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
 
 class CNodeRandomClose(CNodeBase):
@@ -149,7 +166,7 @@ class CNodeRandomClose(CNodeBase):
             distance = random.randint(0, neighbourhood_distance)
             address = (self.id + distance) % (self.k_max_node_id + 1)
             tolerance = self.k_max_node_id / self.min_peers
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=False))
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
 
 class CNodeRandomClosest(CNodeBase):
@@ -174,7 +191,7 @@ class CNodeEqualFingers(CNodeBase):
             distance = (i + 1) * self.k_max_node_id / (self.min_peers + 1)
             address = (self.id + distance) % (self.k_max_node_id + 1)
             tolerance = distance
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=False))
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
 
 class CNodeKademlia(CNodeBase):
@@ -188,7 +205,7 @@ class CNodeKademlia(CNodeBase):
             distance /= 2
             address = (self.id + distance) % (self.k_max_node_id + 1)
             tolerance = distance
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=False))
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
 
 class CNodeKademliaAndClosest(CNodeBase):
@@ -201,14 +218,14 @@ class CNodeKademliaAndClosest(CNodeBase):
         for knode in self.proto.routing.neighbours(self.proto.this_node.id)[:half]:
             address = knode.id
             tolerance = knode.id
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=False))
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
         distance = self.k_max_node_id
         for i in range(self.min_peers - half):
             distance /= 2
             address = (self.id + distance) % (self.k_max_node_id + 1)
             tolerance = distance
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=False))
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
 
 def analyze(network):
