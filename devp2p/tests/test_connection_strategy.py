@@ -128,6 +128,94 @@ class CNodeBase(object):
             # NOT IMPLEMENTED HERE
 
 
+class CNodeFelix(CNodeBase):
+    # https://github.com/ethereum/go-ethereum/wiki/RLPx-Peer-Selection-Proposal
+
+    def connect_peers(self, max_connects=0):
+        return CNodeBase.connect_peers(self, max_connects=max_connects, random_within_distance=True)
+
+    def setup_targets(self):
+        """
+        The 512 bit (256 bit) space is divided into N ranges.
+        The dialer maintains N slots, one for each range.
+
+        In order to find peers, it performs a node lookup with a random target
+        in reach range corresponding to an empty slot.
+        The results of the lookup are then dialed.
+
+        If dialing does not succeed for any node, another random lookup is
+        performed in that range.
+
+        """
+
+        slot_width = self.k_max_node_id / self.min_peers
+        for i in range(self.min_peers):
+            distance = int((i + 0.5) * slot_width)
+            tolerance = slot_width / 2
+            address = (self.id + distance) % (self.k_max_node_id + 1)
+            assert isinstance(address, long), address
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
+
+    def receive_connect(self, other):
+        """
+        Again, the 512 bit (256 bit) space is divided into N ranges.
+        The listener maintains N buckets, one for each range.
+
+        For an incoming connection, after the remote identity has been
+        verified in the handshake, the listener should keep the new peer
+        if the corresponding bucket is empty or if the total number of
+        inbound peers is less than N.
+
+        When the number of inbound peers reaches N, the new connection replaces
+        a random existing   connection from any bucket with more than one entry.
+        """
+
+        n_inbound_buckets = self.max_peers - self.min_peers
+        if len(self.inbound()) < n_inbound_buckets:
+            self.connections.append(other)
+            return True
+
+        # we have N connections
+        assert len(self.inbound()) == n_inbound_buckets
+
+        # interpreting it as
+        # fill corresponding bucket if empty and drop any bucket with more one entry
+
+        def connections_in_range(start, end):
+            return set(n for n in self.connections if n.id >= start and n.id < end)
+
+        connected = False
+        # add to correct bucket if empty
+        bucket_width = self.k_max_node_id / self.min_peers
+        for i in range(self.min_peers):
+            bucket_start = i * bucket_width
+            bucket_end = (i + 1) * bucket_width
+            bucket = connections_in_range(bucket_start, bucket_end)
+            bucket.intersection_update(set(self.inbound()))
+            if not bucket:
+                self.connections.append(other)
+                connected = True
+                break
+
+        # remove
+        if connected:
+            assert len(self.inbound()) > n_inbound_buckets
+            for i in range(self.min_peers):
+                bucket_start = i * bucket_width
+                bucket_end = (i + 1) * bucket_width
+                bucket = connections_in_range(bucket_start, bucket_end)
+                bucket.intersection_update(set(self.inbound()))
+                if len(bucket) > 1:
+                    n = bucket.pop()
+                    self.connections.remove(n)
+                    if n == other:
+                        return False  # as added and removed
+                    n.receive_disconnect(self)
+                    break
+
+        return connected
+
+
 class CNodeRandomClosesestNodeGivenBucket(CNodeBase):
 
     """Alex:
@@ -390,6 +478,7 @@ def main(num_nodes):
     klasses = [CNodeRandom, CNodeRandomClose,
                CNodeEqualFingers, CNodeKademlia,
                CNodeKademliaAndClosest]
+    klasses = [CNodeFelix]
     # min_peer settings to test
     min_peer_options = (5, 7, 9)
 
@@ -397,7 +486,7 @@ def main(num_nodes):
 
     results = []
     for min_peers in min_peer_options:
-        max_peers = min_peers * 2
+        max_peers = min_peers * 3
         for node_class in klasses:
             p = OrderedDict(node_class=node_class)
             p.update(OrderedDict(set_num_nodes=num_nodes, set_min_peers=min_peers,
