@@ -85,6 +85,8 @@ class CNodeBase(object):
 
     def connect_peers(self, max_connects=0, random_within_distance=False):
         """
+        random_within_distance: collect random node within distance form local buckets
+
         override to deal with situations where
             - you enter the method and have not enough slots to conenct your targets
             - your targets don't want to connect you
@@ -128,8 +130,12 @@ class CNodeBase(object):
             # NOT IMPLEMENTED HERE
 
 
-class CNodeFelix(CNodeBase):
+class CNodeFelixNoLimits(CNodeBase):
     # https://github.com/ethereum/go-ethereum/wiki/RLPx-Peer-Selection-Proposal
+
+    """
+    no id selection limits on incomming connections
+    """
 
     def connect_peers(self, max_connects=0):
         return CNodeBase.connect_peers(self, max_connects=max_connects, random_within_distance=True)
@@ -155,6 +161,9 @@ class CNodeFelix(CNodeBase):
             address = (self.id + distance) % (self.k_max_node_id + 1)
             assert isinstance(address, long), address
             self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
+
+
+class CNodeFelix(CNodeFelixNoLimits):
 
     def receive_connect(self, other):
         """
@@ -216,20 +225,6 @@ class CNodeFelix(CNodeBase):
         return connected
 
 
-class CNodeRandomClosesestNodeGivenBucket(CNodeBase):
-
-    """Alex:
-    onNodeAddedToTable(node)
-      dist = distance(node, self)
-      tcpEvict = peersByDistance[dist].last
-      if !tcpEvict
-        connect(node)
-      else if tcpEvict.uptime < 30 && tcpEvict.totalUptime < 300
-        tryConnect(node, tcpEvict)
-    """
-    pass
-
-
 class CNodeRandom(CNodeBase):
 
     def setup_targets(self):
@@ -269,7 +264,7 @@ class CNodeRandomClosest(CNodeBase):
             self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
 
-class CNodeRandomSelfLookup_NOT_WORKING(CNodeBase):
+class CNodeRandomSelfLookup(CNodeBase):
 
     """
     As proposed by Alex:
@@ -284,25 +279,60 @@ class CNodeRandomSelfLookup_NOT_WORKING(CNodeBase):
     """
 
     def setup_targets(self):
-        proto = devp2p.kademlia.KademliaProtocol(self.proto.this_node, self.network.wire)
-        print len(self.proto.routing)
-
         bootstrap_node = random.choice(list(self.proto.routing))
-        proto.bootstrap([bootstrap_node])
-        # process all protocols
-        all_protos = [proto] + [n.proto for n in self.network.values() if n != self]
-        self.network.wire.process(all_protos)
+        # reset routing table
+        self.proto.routing = devp2p.kademlia.RoutingTable(self.proto.this_node)
+        self.proto.bootstrap([bootstrap_node])
+        self.network.process()
         assert not self.network.wire.messages
+        assert len(self.proto.routing) >= self.min_peers, len(proto.routing)
 
         selected = set()
-        assert len(proto.routing) >= self.min_peers, len(proto.routing)
         for i in range(self.min_peers):
             while True:
-                target = random.choice(list(proto.routing))
+                target = random.choice(list(self.proto.routing))
                 if target not in selected:
                     selected.add(target)
                     break
-            self.targets.append(dict(address=target.id, tolerance=0, connected=None))
+            self.targets.append(dict(address=target.id, tolerance=1, connected=None))
+
+
+class CNodeSelfOtherSide(CNodeBase):
+
+    """
+    Daniel:
+    Thus, the self-lookup finds (enough) nodes that are closer to self than the bootstrap node,
+    while the "other side" lookup makes sure that it has neighbors that are sufficiently far.
+    These two lookups are both necessary and sufficient to make sure that the node becomes
+    "well connected", i.e. connected to enough nodes at every distance level.
+
+    Nodes must have enough neighbors both near and far in order to have short (i.e. O(log N)
+     length) path to every node in the network with a centrality roughly equaling that of
+    all other nodes.
+    """
+
+    def setup_targets(self):
+        bootstrap_node = random.choice(list(self.proto.routing))
+        # reset routing table
+        self.proto.routing = devp2p.kademlia.RoutingTable(self.proto.this_node)
+        # lookup self
+        self.proto.bootstrap([bootstrap_node])
+        self.network.process()
+        # lookup not self
+        other_side_id = self.id ^ 0
+        self.proto.find_node(other_side_id)
+        self.network.process()
+        assert not self.network.wire.messages
+        assert len(self.proto.routing) >= self.min_peers, len(proto.routing)
+
+        selected = set()
+        for i in range(self.min_peers):
+            while True:
+                target = random.choice(list(self.proto.routing))
+                if target not in selected:
+                    selected.add(target)
+                    break
+            self.targets.append(dict(address=target.id, tolerance=1, connected=None))
 
 
 class CNodeEqualFingers(CNodeBase):
@@ -322,14 +352,20 @@ class CNodeKademlia(CNodeBase):
 
     def setup_targets(self):
         """
-        connects random nodes according to a dht routing
+        connects nodes according to a dht routing
         """
         distance = self.k_max_node_id
         for i in range(self.min_peers):
             distance /= 2
             address = (self.id + distance) % (self.k_max_node_id + 1)
-            tolerance = distance
+            tolerance = distance / 2
             self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
+
+
+class CNodeKademliaRandom(CNodeKademlia):
+
+    def connect_peers(self, max_connects=0):
+        return CNodeBase.connect_peers(self, max_connects=max_connects, random_within_distance=True)
 
 
 class CNodeKademliaAndClosest(CNodeBase):
@@ -382,8 +418,7 @@ def analyze(network):
         avg_shortest_paths = []
         for node in G:
             path_length = nx.single_source_shortest_path_length(G, node)
-            avg_shortest_paths.append(sum(path_length.values()) / len(path_length))
-
+            avg_shortest_paths.append(statistics.mean(path_length.values()))
         metrics['avg_shortest_path'] = statistics.mean(avg_shortest_paths)
         metrics['rsd_shortest_path'] = statistics.stdev(
             avg_shortest_paths) / metrics['avg_shortest_path']
@@ -410,9 +445,9 @@ def analyze(network):
         metrics['avg_load_centrality'] = statistics.mean(vs)
         metrics['rsd_load_centrality'] = statistics.stdev(vs) / metrics['avg_load_centrality']
 
-        print 'calculating edge_connectivity'
+        print 'calculating node_connectivity'
         # higher is better
-        metrics['edge_connectivity'] = nx.edge_connectivity(G)
+        metrics['node_connectivity'] = nx.node_connectivity(G)
 
         print 'calculating diameter'
         # lower is better
@@ -515,7 +550,8 @@ def main(num_nodes):
     klasses = [CNodeRandom, CNodeRandomClose,
                CNodeEqualFingers, CNodeKademlia,
                CNodeKademliaAndClosest]
-    klasses = [CNodeFelix]
+    # klasses = [CNodeRandom, CNodeSelfOtherSide]
+
     # min_peer settings to test
     min_peer_options = (5, 7, 9)
 
@@ -523,7 +559,7 @@ def main(num_nodes):
 
     results = []
     for min_peers in min_peer_options:
-        max_peers = min_peers * 3
+        max_peers = min_peers * 2
         for node_class in klasses:
             p = OrderedDict(node_class=node_class)
             p.update(OrderedDict(set_num_nodes=num_nodes, set_min_peers=min_peers,
@@ -550,5 +586,5 @@ if __name__ == '__main__':
 todos:
     colorize nodes being closest to 0, 1/4, 1/2, 3/4 of the id space
     validate graph (assert bidirectional connections, max_peers satisfactions)
-    support alanlytics about nodes added to an established network
+    support ananlytics about nodes added to an established network
 """
