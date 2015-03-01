@@ -19,10 +19,11 @@ implementing strategies:
 """
 
 import time
+import operator
 import networkx as nx
 import matplotlib.pyplot as plt
 import devp2p.kademlia
-from test_kademlia_protocol import test_many
+from test_kademlia_protocol import test_many, get_wired_protocol
 from collections import OrderedDict
 import random
 import statistics
@@ -50,6 +51,10 @@ class CNodeBase(object):
         # address is the id : long
         self.targets = list()
 
+    @classmethod
+    def prepare_dht(cls, num_nodes):
+        return test_many(num_nodes)
+
     def distance(self, other):
         return self.id ^ other.id
 
@@ -63,11 +68,12 @@ class CNodeBase(object):
         return [n for n in self.connections if n not in ob]
 
     def receive_connect(self, other):
-        if len(self.connections) == self.max_peers:
+        if len(self.connections) >= self.max_peers:
             return False
         else:
             assert other not in self.connections
             self.connections.append(other)
+            assert len(self.connections) <= self.max_peers
             return True
 
     def receive_disconnect(self, other):
@@ -77,15 +83,24 @@ class CNodeBase(object):
             if t['connected'] == other:
                 t['connected'] = None
 
-    def find_targets(self):
+    def _find_targets(self):
         "call find node to fill buckets with addresses close to the target"
         for t in self.targets:
             self.proto.find_node(t['address'])
             self.network.process()
 
-    def connect_peers(self, max_connects=0, random_within_distance=False):
+    def find_targets(self):
+        "call find node to fill buckets with addresses close to the target"
+        all = [n.proto for n in self.network.values()]
+        for t in self.targets:
+
+            self.proto.find_node(t['address'])
+            self.network.process()
+
+    def connect_peers(self, max_connects=0, random_within_distance=False, candidates=[]):
         """
         random_within_distance: collect random node within distance form local buckets
+        candidates: directly specify a list of candidates
 
         override to deal with situations where
             - you enter the method and have not enough slots to conenct your targets
@@ -99,7 +114,9 @@ class CNodeBase(object):
         for t in (t for t in self.targets if not t['connected']):
             if len(self.connections) >= self.max_peers:
                 break
-            if random_within_distance:
+            if candidates:
+                assert not random_within_distance
+            elif random_within_distance:
                 candidates = self.proto.routing.neighbours_within_distance(
                     t['address'], t['tolerance'])
                 random.shuffle(candidates)
@@ -107,14 +124,17 @@ class CNodeBase(object):
                 candidates = self.proto.routing.neighbours(t['address'])
             for knode in candidates:
                 assert isinstance(knode, devp2p.kademlia.Node)
+                assert len(self.connections) < self.max_peers
                 # assure within tolerance
                 if knode.id_distance(t['address']) < t['tolerance']:
                     # make sure we are not connected yet
                     remote = self.network[knode.id]
-                    if remote not in self.connections:
+                    if remote not in self.connections and remote != self:
                         if remote.receive_connect(self):
+                            assert len(self.connections) < self.max_peers
                             t['connected'] = remote
                             self.connections.append(remote)
+                            assert len(self.connections) <= self.max_peers
                             num_connected += 1
                             if max_connects and num_connected == max_connects:
                                 return num_connected
@@ -128,6 +148,39 @@ class CNodeBase(object):
         for i in range(self.min_peers):
             self.targets.append(dict(address=0, tolerance=0, connected=None))
             # NOT IMPLEMENTED HERE
+
+
+class CNodeRandom(CNodeBase):
+
+    def setup_targets(self):
+        """
+        connects random nodes
+        """
+        for i in range(self.min_peers):
+            distance = random.randint(0, self.k_max_node_id)
+            address = (self.id + distance) % (self.k_max_node_id + 1)
+            tolerance = self.k_max_node_id / self.max_peers
+            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
+
+
+class CNodeRandomFast(CNodeRandom):
+
+    @classmethod
+    def prepare_dht(cls, num_nodes):
+        return [get_wired_protocol() for i in range(num_nodes)]
+
+    def find_targets(self):
+        self.candidates = []
+        assert len(self.network.all_nodes)
+        tolerance = devp2p.kademlia.k_max_node_id / len(self.network.all_nodes) * 100
+        for t in self.targets:
+            nodes = [n for n in self.network.all_nodes if n.id_distance(t['address']) < tolerance]
+            assert nodes
+            c = sorted(nodes, key=operator.methodcaller('id_distance', t['address']))[:4]
+            self.candidates.extend(c)
+
+    def connect_peers(self, max_connects, random_within_distance=False, candidates=[]):
+        return CNodeBase.connect_peers(self, max_connects, random_within_distance, self.candidates)
 
 
 class CNodeFelixNoLimits(CNodeBase):
@@ -284,8 +337,6 @@ class CNodeRandomSelfLookup(CNodeBase):
         self.proto.routing = devp2p.kademlia.RoutingTable(self.proto.this_node)
         self.proto.bootstrap([bootstrap_node])
         self.network.process()
-        assert not self.network.wire.messages
-        assert len(self.proto.routing) >= self.min_peers, len(proto.routing)
 
         selected = set()
         for i in range(self.min_peers):
@@ -322,8 +373,6 @@ class CNodeSelfOtherSide(CNodeBase):
         other_side_id = self.id ^ 0
         self.proto.find_node(other_side_id)
         self.network.process()
-        assert not self.network.wire.messages
-        assert len(self.proto.routing) >= self.min_peers, len(proto.routing)
 
         selected = set()
         for i in range(self.min_peers):
@@ -409,7 +458,8 @@ def analyze(network):
     metrics = OrderedDict(num_nodes=len(network))
     metrics['max_peers'] = max(num_peers)
     metrics['min_peers'] = min(num_peers)
-    metrics['avg_peers'] = sum(num_peers) / len(num_peers)
+    metrics['avg_peers'] = statistics.mean(num_peers)
+    metrics['rsd_peers'] = statistics.stdev(num_peers) / statistics.mean(num_peers)
 
     # calc shortests paths
     # lower is better
@@ -500,15 +550,14 @@ def simulate(node_class, set_num_nodes=20, set_min_peers=7, set_max_peers=14):
         dict(num_nodes=set_num_nodes, min_peers=set_min_peers, max_peers=set_max_peers)
 
     print 'bootstrapping discovery protocols'
-    kademlia_protocols = test_many(set_num_nodes)
+    kademlia_protocols = node_class.prepare_dht(set_num_nodes)
 
     # create ConnectableNode instances
     print 'executing connection strategy'
     network = OrderedDict()  # node.id -> Node
     # .process executes all messages on the network
     network.process = lambda: kademlia_protocols[0].wire.process(kademlia_protocols)
-    network.wire = kademlia_protocols[0].wire
-
+    network.all_nodes = [p.this_node for p in kademlia_protocols]
     # wrap protos in connectable nodes and map via network
     for p in kademlia_protocols:
         cn = node_class(p, network, min_peers=set_min_peers, max_peers=set_max_peers)
@@ -547,13 +596,15 @@ def print_results(results=[]):
 
 def main(num_nodes):
     # strategies to test
-    klasses = [CNodeRandom, CNodeRandomClose,
-               CNodeEqualFingers, CNodeKademlia,
-               CNodeKademliaAndClosest]
-    # klasses = [CNodeRandom, CNodeSelfOtherSide]
+    klasses = [CNodeRandom,
+               CNodeSelfOtherSide,
+               CNodeKademliaRandom,
+               CNodeRandomSelfLookup,
+               CNodeFelixNoLimits]
+    klasses = [CNodeRandomFast]
 
     # min_peer settings to test
-    min_peer_options = (5, 7, 9)
+    min_peer_options = (6,)
 
     print 'running %d simulations' % (len(min_peer_options) * len(klasses))
 
