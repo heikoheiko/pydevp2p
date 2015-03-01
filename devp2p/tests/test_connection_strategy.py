@@ -216,107 +216,6 @@ class CNodeFelixNoLimits(CNodeBase):
             self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
 
-class CNodeFelix(CNodeFelixNoLimits):
-
-    def receive_connect(self, other):
-        """
-        Again, the 512 bit (256 bit) space is divided into N ranges.
-        The listener maintains N buckets, one for each range.
-
-        For an incoming connection, after the remote identity has been
-        verified in the handshake, the listener should keep the new peer
-        if the corresponding bucket is empty or if the total number of
-        inbound peers is less than N.
-
-        When the number of inbound peers reaches N, the new connection replaces
-        a random existing   connection from any bucket with more than one entry.
-        """
-
-        n_inbound_buckets = self.max_peers - self.min_peers
-        if len(self.inbound()) < n_inbound_buckets:
-            self.connections.append(other)
-            return True
-
-        # we have N connections
-        assert len(self.inbound()) == n_inbound_buckets
-
-        # interpreting it as
-        # fill corresponding bucket if empty and drop any bucket with more one entry
-
-        def connections_in_range(start, end):
-            return set(n for n in self.connections if n.id >= start and n.id < end)
-
-        connected = False
-        # add to correct bucket if empty
-        bucket_width = self.k_max_node_id / self.min_peers
-        for i in range(self.min_peers):
-            bucket_start = i * bucket_width
-            bucket_end = (i + 1) * bucket_width
-            bucket = connections_in_range(bucket_start, bucket_end)
-            bucket.intersection_update(set(self.inbound()))
-            if not bucket:
-                self.connections.append(other)
-                connected = True
-                break
-
-        # remove
-        if connected:
-            assert len(self.inbound()) > n_inbound_buckets
-            for i in range(self.min_peers):
-                bucket_start = i * bucket_width
-                bucket_end = (i + 1) * bucket_width
-                bucket = connections_in_range(bucket_start, bucket_end)
-                bucket.intersection_update(set(self.inbound()))
-                if len(bucket) > 1:
-                    n = bucket.pop()
-                    self.connections.remove(n)
-                    if n == other:
-                        return False  # as added and removed
-                    n.receive_disconnect(self)
-                    break
-
-        return connected
-
-
-class CNodeRandom(CNodeBase):
-
-    def setup_targets(self):
-        """
-        connects random nodes
-        """
-        for i in range(self.min_peers):
-            distance = random.randint(0, self.k_max_node_id)
-            address = (self.id + distance) % (self.k_max_node_id + 1)
-            tolerance = self.k_max_node_id / self.min_peers
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
-
-
-class CNodeRandomClose(CNodeBase):
-
-    def setup_targets(self):
-        """
-        connects random nodes in the neighbourhood only
-        """
-        neighbourhood_distance = self.k_max_node_id * 0.05
-        for i in range(self.min_peers):
-            distance = random.randint(0, neighbourhood_distance)
-            address = (self.id + distance) % (self.k_max_node_id + 1)
-            tolerance = self.k_max_node_id / self.min_peers
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
-
-
-class CNodeRandomClosest(CNodeBase):
-
-    def setup_targets(self):
-        """
-        connects the closest neighbours only
-        """
-        for i in range(self.min_peers):
-            address = (self.id + i) % (self.k_max_node_id + 1)
-            tolerance = self.k_max_node_id / self.min_peers
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
-
-
 class CNodeRandomSelfLookup(CNodeBase):
 
     """
@@ -384,19 +283,6 @@ class CNodeSelfOtherSide(CNodeBase):
             self.targets.append(dict(address=target.id, tolerance=1, connected=None))
 
 
-class CNodeEqualFingers(CNodeBase):
-
-    def setup_targets(self):
-        """
-        connects random nodes according to a dht routing
-        """
-        for i in range(self.min_peers):
-            distance = (i + 1) * self.k_max_node_id / (self.min_peers + 1)
-            address = (self.id + distance) % (self.k_max_node_id + 1)
-            tolerance = distance
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
-
-
 class CNodeKademlia(CNodeBase):
 
     def setup_targets(self):
@@ -415,26 +301,6 @@ class CNodeKademliaRandom(CNodeKademlia):
 
     def connect_peers(self, max_connects=0):
         return CNodeBase.connect_peers(self, max_connects=max_connects, random_within_distance=True)
-
-
-class CNodeKademliaAndClosest(CNodeBase):
-
-    def setup_targets(self):
-        """
-        connects random nodes in the neighbourhood, then kademlia
-        """
-        half = self.min_peers / 2
-        for knode in self.proto.routing.neighbours(self.proto.this_node.id)[:half]:
-            address = knode.id
-            tolerance = knode.id
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
-
-        distance = self.k_max_node_id
-        for i in range(self.min_peers - half):
-            distance /= 2
-            address = (self.id + distance) % (self.k_max_node_id + 1)
-            tolerance = distance
-            self.targets.append(dict(address=address, tolerance=tolerance, connected=None))
 
 
 def analyze(network):
