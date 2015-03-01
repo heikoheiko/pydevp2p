@@ -427,7 +427,7 @@ class KademliaProtocol(object):
 
         # check idle buckets
         for bucket in self.routing.idle_buckets:
-            for node in self.nodes:
+            for node in bucket.nodes:
                 self.ping(node)
 
         # check and removed timedout find requests
