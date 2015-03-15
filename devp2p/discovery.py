@@ -41,6 +41,7 @@ class Address(object):
 
     def __init__(self, ip, port, from_binary=False):
         if from_binary:
+            assert len(ip) in (4, 6)
             self._ip = ipaddress.ip_address(ip)
             self.port = utils.idec(port)
         else:
@@ -63,10 +64,6 @@ class Address(object):
 
     def to_binary(self):
         return list((self._ip.packed, struct.pack('>H', self.port)))
-
-    @classmethod
-    def from_binary(self, ip, port):
-        return Address(ip, port, from_binary=True)
 
     @classmethod
     def from_binary(self, ip, port):
