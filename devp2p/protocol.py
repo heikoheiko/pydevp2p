@@ -181,7 +181,7 @@ class P2PProtocol(BaseProtocol):
 
     @property
     def nodeid(self):
-        return self.config['network']['node_id']
+        return self.config['p2p']['node_id']
 
     def _handshake(self):
         if self.is_inititator:
@@ -264,7 +264,7 @@ class P2PProtocol(BaseProtocol):
             self.version,
             self.CLIENT_VERSION,
             capabilities,
-            self.config['network']['listen_port'],
+            self.config['p2p']['listen_port'],
             self.nodeid
         ]
         self._send_packet('hello', data)

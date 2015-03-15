@@ -1,6 +1,7 @@
 from UserDict import IterableUserDict
 from service import BaseService
 from slogging import get_logger
+import crypto
 log = get_logger('app')
 
 
@@ -60,6 +61,8 @@ p2p:
     """
     if len(sys.argv) == 1:
         config = yaml.load(io.BytesIO(sample_config))
+        pubkey = crypto.privtopub(config['p2p']['privkey_hex'].decode('hex'))
+        config['p2p']['node_id'] = crypto.sha3(pubkey)
     else:
         fn = sys.argv[1]
         log.info('loading config from', fn=fn)
