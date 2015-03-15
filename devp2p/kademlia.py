@@ -19,6 +19,7 @@ from rlp import big_endian_to_int
 from crypto import sha3
 import operator
 import time
+import random
 import slogging
 log = slogging.get_logger('kademlia')
 
@@ -449,9 +450,14 @@ class KademliaProtocol(object):
                 self.ping(node)
 
         # check idle buckets
+        """
+        idle bucket refresh:
+        for each bucket which hasn't been touched in 3600 seconds
+            pick a random value in the range of the bucket and perform discovery for that value
+        """
         for bucket in self.routing.idle_buckets:
-            for node in bucket.nodes:
-                self.ping(node)
+            rid = random.randint(bucket.start, bucket.end)
+            self.find_node(rid)
 
         # check and removed timedout find requests
         for nodeid, timeout in self._find_requests.items():
