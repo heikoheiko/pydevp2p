@@ -401,8 +401,9 @@ class DiscoveryProtocol(kademlia.WireInterface):
             unsigned expiration;
         };
         """
-        assert isinstance(target_node_id, str)
-        assert len(target_node_id) == 64
+        assert isinstance(target_node_id, long)
+        target_node_id = rlp.int_to_big_endian(target_node_id)
+        assert len(target_node_id) == kademlia.k_id_size / 8
         log.debug('>>> find_node', remoteid=node)
         message = self.pack(self.cmd_id_map['find_node'], [target_node_id])
         self.send(node, message)
@@ -410,7 +411,8 @@ class DiscoveryProtocol(kademlia.WireInterface):
     def recv_find_node(self, nodeid, payload, mdc):
         node = self.get_node(nodeid)
         log.debug('<<< find_node', remoteid=node)
-        target = payload[0]
+        assert len(payload[0]) == kademlia.k_id_size / 8
+        target = rlp.big_endian_to_int(payload[0])
         self.kademlia.recv_find_node(node, target)
 
     def send_neighbours(self, node, neighbours):

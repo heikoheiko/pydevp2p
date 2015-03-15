@@ -15,7 +15,7 @@ Aside from the previously described exclusions, node discovery closely follows s
 and protocol described by Maymounkov and Mazieres.
 """
 
-from rlp import big_endian_to_int, int_to_big_endian
+from rlp import big_endian_to_int
 from crypto import sha3
 import operator
 import time
@@ -30,7 +30,7 @@ k_request_timeout = 300 / 1000.          # timeout of finde_node lookups
 k_idle_bucket_refresh_interval = 3600    # ping all nodes in bucket if bucket was idle
 k_find_concurrency = 3                   # parallel find node lookups
 k_pubkey_size = 512
-k_id_size = 256
+k_id_size = 512
 k_max_node_id = 2 ** k_id_size - 1
 
 
@@ -39,8 +39,11 @@ class Node(object):
     def __init__(self, pubkey):
         assert len(pubkey) == 64 and isinstance(pubkey, str)
         self.pubkey = pubkey
-#        self.id = big_endian_to_int(pubkey)
-        self.id = big_endian_to_int(sha3(pubkey))
+        if k_id_size == 512:
+            self.id = big_endian_to_int(pubkey)
+        else:
+            assert k_id_size == 256
+            self.id = big_endian_to_int(sha3(pubkey))
 
     def distance(self, other):
         return self.id ^ other.id
@@ -56,12 +59,6 @@ class Node(object):
 
     def __repr__(self):
         return '<Node(%s)>' % self.pubkey[:4].encode('hex')
-
-    # @classmethod
-    # def __from_id(cls, id):
-    #     pubk = int_to_big_endian(id)
-    #     pubk = (64 - len(pubk)) * '\0' + pubk
-    #     return cls(pubk)
 
 
 class KBucket(object):
