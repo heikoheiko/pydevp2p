@@ -1,6 +1,5 @@
 from devp2p.crypto import ecdsa_sign, mk_privkey, privtopub, ecdsa_recover, ECCx
 import pyelliptic
-import bitcoin
 
 
 def test_pyelliptic_sig():
@@ -10,7 +9,8 @@ def test_pyelliptic_sig():
     e = ECCx(my_pubkey, priv_key)
     msg = 'a'
     s = pyelliptic.ECC.sign(e, msg)
-    assert s == pyelliptic.ECC.sign(e, msg)  # deterministic
+    s2 = pyelliptic.ECC.sign(e, msg)
+    assert s != s2  # non deterministic
 
 
 def test_go_sig():
@@ -40,9 +40,6 @@ def test_go_sig():
     go_signed_data = d['signed_data'].decode('hex')
     go_signature = d['signature'].decode('hex')
 
-    b_signature = bitcoin.ecdsa_sign(go_signed_data, priv_key)  # base64 encoded!
-
-    # https://github.com/vbuterin/pybitcointools/blob/master/bitcoin/main.py#L500
     my_signature = ecdsa_sign(go_signed_data, priv_key)
     assert my_signature == ecdsa_sign(go_signed_data, priv_key)  # deterministic k
 
