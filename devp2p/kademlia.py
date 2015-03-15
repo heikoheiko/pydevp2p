@@ -493,6 +493,8 @@ class KademliaProtocol(object):
         self._expected_pongs[pingid] = (timeout, node, replacement)
 
     def recv_ping(self, remote, echo):
+        "udp addresses determined by socket address of revd Ping packets"  # ok
+        "tcp addresses determined by contents of Ping packet"  # not yet
         assert isinstance(remote, Node)
         assert remote != self.this_node
         log.debug('recv ping', remote=remote, local=self.this_node)
@@ -500,9 +502,15 @@ class KademliaProtocol(object):
         self.wire.send_pong(remote, echo)
 
     def recv_pong(self, remote, echoed):
+        "tcp addresses are only updated upon receipt of Pong packet"
         assert remote != self.this_node
         pingid = self._mkpingid(echoed, remote)
         log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:8], local=self.this_node)
+        # update address (clumsy fixme)
+        nnodes = self.routing.neighbours(remote)
+        if nnodes and nnodes[0] == remote:
+            nnodes[0].address = remote.address  # updated tcp address
+        # update rest
         self.update(remote, pingid)
 
     def _query_neighbours(self, targetid):
