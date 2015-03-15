@@ -306,6 +306,31 @@ class WireInterface(object):
         pass
 
 
+class FindNodeTask(object):
+
+    """
+    initiating a find_node and the consulting the buckets via neighbours() does not
+    return the find_node result, as these first need to be pinged and might not end up
+    in the bucket
+    """
+
+    def __init__(self, proto, targetid, via_node=None, timeout=k_request_timeout, callback=None):
+        assert isinstance(proto, KademliaProtocol)
+        assert isinstance(targetid, long)
+        assert not via_node or isinstance(via_node, Node)
+        self.proto = proto
+        self.targetid = targetid
+        self.via_node = via_node
+        self.timeout = time.time() + timeout
+        self.callback = callback
+
+        if via_node:
+            self.wire.send_find_node(via_node, targetid)
+        else:
+            self._query_neighbours(targetid)
+        # FIXME, should we return the closest node (allow callbacks on find_request)
+
+
 class KademliaProtocol(object):
 
     def __init__(self, node, wire):
