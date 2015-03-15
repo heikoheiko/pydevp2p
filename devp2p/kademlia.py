@@ -377,7 +377,8 @@ class KademliaProtocol(object):
         def _expected_pongs():
             return set(v[1] for v in self._expected_pongs.values())
 
-        if pingid and pingid not in self._expected_pongs:
+        if pingid and (pingid not in self._expected_pongs):
+            assert pingid not in self._expected_pongs
             log.debug('surprising pong', remoteid=node,
                       expected=_expected_pongs(), pingid=pingid.encode('hex')[:8])
             if pingid in self._deleted_pingids:
@@ -434,6 +435,9 @@ class KademliaProtocol(object):
 
         log.debug('updated', num_nodes=len(self.routing), num_buckets=len(self.routing.buckets))
 
+    def _mkpingid(self, echoed, node):
+        return echoed + node.pubkey
+
     def ping(self, node, replacement=None):
         """
         successful pings should lead to an update
@@ -444,7 +448,7 @@ class KademliaProtocol(object):
         assert node != self.this_node
         log.debug('pinging', remote=node, local=self.this_node)
         echoed = self.wire.send_ping(node)
-        pingid = sha3(echoed + node.pubkey)
+        pingid = self._mkpingid(echoed, node)
         assert pingid
         timeout = time.time() + k_request_timeout
         log.debug('set wait for pong from', remote=node, local=self.this_node,
@@ -460,7 +464,7 @@ class KademliaProtocol(object):
 
     def recv_pong(self, remote, echoed):
         assert remote != self.this_node
-        pingid = sha3(echoed + remote.pubkey)
+        pingid = self._mkpingid(echoed, remote)
         log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:4], local=self.this_node)
         self.update(remote, pingid)
 
