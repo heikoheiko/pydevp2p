@@ -1,4 +1,3 @@
-import ConfigParser
 from devp2p import discovery
 from devp2p import kademlia
 from devp2p import crypto
@@ -54,11 +53,11 @@ class NodeDiscoveryMock(object):
     def __init__(self, host, port, seed):
         self.address = discovery.Address(host, port)
 
-        config = ConfigParser.ConfigParser()
-        config.add_section('p2p')
-        config.set('p2p', 'listen_host', host)
-        config.set('p2p', 'listen_port', str(port))
-        config.set('p2p', 'privkey_hex', crypto.sha3(seed).encode('hex'))
+        config = dict(p2p=dict())
+        config_p2p = config['p2p']
+        config_p2p['listen_host'] = host
+        config_p2p['listen_port'] = port
+        config_p2p['privkey_hex'] = crypto.sha3(seed).encode('hex')
 
         app = AppMock()
         app.config = config
@@ -121,11 +120,12 @@ def test_ping_pong():
 # ############ test with real UDP ##################
 
 def get_app(port, seed):
-    config = ConfigParser.ConfigParser()
-    config.add_section('p2p')
-    config.set('p2p', 'listen_host', '127.0.0.1')
-    config.set('p2p', 'listen_port', str(port))
-    config.set('p2p', 'privkey_hex', crypto.sha3(seed).encode('hex'))
+    config = dict(p2p=dict())
+    config_p2p = config['p2p']
+    config_p2p['listen_host'] = '127.0.0.1'
+    config_p2p['listen_port'] = port
+    config_p2p['privkey_hex'] = crypto.sha3(seed).encode('hex')
+
     # create app
     app = BaseApp(config)
     discovery.NodeDiscovery.register_with_app(app)
@@ -204,8 +204,8 @@ def test_bootstrap_udp():
 def main():
     "test connecting nodes"
     app = get_app(30304, 'theapp')
-    #app.config.set('p2p', 'listen_host', '127.0.0.1')
-    app.config.set('p2p', 'listen_host', '0.0.0.0')
+    # app.config['p2p']['listen_host'] = '127.0.0.1'
+    app.config['p2p']['listen_host'] = '0.0.0.0'
     app.start()
 
     print "this node is"

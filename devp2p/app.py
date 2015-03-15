@@ -37,7 +37,7 @@ class BaseApp(object):
 
 if __name__ == '__main__':
     # config
-    import ConfigParser
+    import yaml
     import io
     import sys
     import signal
@@ -50,22 +50,22 @@ if __name__ == '__main__':
 
     # read config
     sample_config = """
-[p2p]
-num_peers = 10
-bootstrap_host = localhost
-bootstrap_port = 30303
-listen_host = 127.0.0.1
-listen_port = 30302
-privkey_hex = 65462b0520ef7d3df61b9992ed3bea0c56ead753be7c8b3614e0ce01e4cac41b
+p2p:
+    num_peers: 10
+    bootstrap_host: localhost
+    bootstrap_port: 30303
+    listen_host: 127.0.0.1
+    listen_port: 30302
+    privkey_hex: 65462b0520ef7d3df61b9992ed3bea0c56ead753be7c8b3614e0ce01e4cac41b
     """
-    config = ConfigParser.ConfigParser()
     if len(sys.argv) == 1:
-        config.readfp(io.BytesIO(sample_config))
+        config = yaml.load(io.BytesIO(sample_config))
     else:
         fn = sys.argv[1]
         log.info('loading config from', fn=fn)
-        config.readfp(open(fn))
+        config = yaml.load(open(fn))
 
+    print config
     # create app
     app = BaseApp(config)
 

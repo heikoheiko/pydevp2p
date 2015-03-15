@@ -61,10 +61,10 @@ class PeerManager(BaseService):
         self._start_peer(connection, address, is_inititator=True)
 
     def _bootstrap(self):
-        host = self.app.config.get('p2p', 'bootstrap_host', None)
+        host = self.app.config['p2p']['bootstrap_host']
+        port = self.app.config['p2p']['bootstrap_port']
         if host:
             log.info('connecting bootstrap server')
-            port = self.app.config.getint('p2p', 'bootstrap_port')
             try:
                 self.connect((host, port))
             except socket.error:
@@ -73,10 +73,10 @@ class PeerManager(BaseService):
     def start(self):
         log.info('starting peermanager')
         # start a listening server
-        host = self.app.config.get('p2p', 'listen_host')
-        port = self.app.config.getint('p2p', 'listen_port')
-        log.info('starting listener', host=host, port=port)
-        self.server = StreamServer((host, port), handle=self._start_peer)
+        ip = self.app.config['p2p']['listen_host']
+        port = self.app.config['p2p']['listen_port']
+        log.info('starting listener', host=ip, port=port)
+        self.server = StreamServer((ip, port), handle=self._start_peer)
         self.server.start()
         self._bootstrap()
         super(PeerManager, self).start()

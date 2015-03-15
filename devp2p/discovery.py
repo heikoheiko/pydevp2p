@@ -205,7 +205,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
     def __init__(self, app, transport):
         self.app = app
         self.transport = transport
-        self.privkey = app.config.get('p2p', 'privkey_hex').decode('hex')
+        self.privkey = app.config['p2p']['privkey_hex'].decode('hex')
         self.pubkey = crypto.privtopub(self.privkey)
         self.nodes = dict()   # nodeid->Node,  fixme should be loaded
         this_node = Node(self.pubkey, self.transport.address)
@@ -342,8 +342,8 @@ class DiscoveryProtocol(kademlia.WireInterface):
         };
         """
         log.debug('>>> ping', remoteid=node)
-        ip = self.app.config.get('p2p', 'listen_host')
-        port = self.app.config.getint('p2p', 'listen_port')
+        ip = self.app.config['p2p']['listen_host']
+        port = self.app.config['p2p']['listen_port']
         #payload = [Address(ip, port).to_endpoint()]
         payload = Address(ip, port).to_binary()
         message = self.pack(self.cmd_id_map['ping'], payload)
@@ -493,8 +493,9 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
 
     @property
     def address(self):
-        return Address(self.app.config.get('p2p', 'listen_host'),
-                       self.app.config.getint('p2p', 'listen_port'))
+        ip = self.app.config['p2p']['listen_host']
+        port = self.app.config['p2p']['listen_port']
+        return Address(ip, port)
 
     # def _send(self, address, message):
     #     assert isinstance(address, Address)
@@ -522,10 +523,10 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
     def start(self):
         log.info('starting discovery')
         # start a listening server
-        host = self.app.config.get('p2p', 'listen_host')
-        port = self.app.config.getint('p2p', 'listen_port')
+        ip = self.app.config['p2p']['listen_host']
+        port = self.app.config['p2p']['listen_port']
         log.info('starting listener', port=port)
-        self.server = DatagramServer((host, port), handle=self._handle_packet)
+        self.server = DatagramServer((ip, port), handle=self._handle_packet)
         self.server.start()
         super(NodeDiscovery, self).start()
 
