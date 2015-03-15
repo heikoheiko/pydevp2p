@@ -22,12 +22,12 @@ class WireMock(kademlia.WireInterface):
             cls.messages.pop()
 
     def send_ping(self, node):
-        ping_id = hex(random.randint(0, 2**256))[-32:]
-        self.messages.append((node, 'ping', self.sender, ping_id))
-        return ping_id
+        echo = hex(random.randint(0, 2**256))[-32:]
+        self.messages.append((node, 'ping', self.sender, echo))
+        return echo
 
-    def send_pong(self, node, ping_id):
-        self.messages.append((node, 'pong', self.sender, ping_id))
+    def send_pong(self, node, echo):
+        self.messages.append((node, 'pong', self.sender, echo))
 
     def send_find_node(self,  node, nodeid):
         self.messages.append((node, 'find_node', self.sender, nodeid))
@@ -118,9 +118,10 @@ def test_setup():
     assert len(closest) == kademlia.k_bucket_size
     proto.recv_neighbours(random_node(), closest)
 
-    # expect another lookup
-    msg = wire.poll(closest[0])
-    assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.id)
+    # expect 3 lookups
+    for i in range(kademlia.k_find_concurrency):
+        msg = wire.poll(closest[i])
+        assert msg == ('find_node', proto.routing.this_node, proto.routing.this_node.id)
 
     # and pings for all nodes
     for node in closest:
@@ -147,7 +148,7 @@ def test_find_node_timeout():
     time.sleep(kademlia.k_request_timeout)
 
     # respond with neighbours
-    closest = other.neighbours(kademlia.Node(msg[2]))
+    closest = other.neighbours(msg[2])
     assert len(closest) == kademlia.k_bucket_size
     proto.recv_neighbours(random_node(), closest)
 
@@ -220,7 +221,8 @@ def test_eviction_node_active():
     eviction_candidate = bucket.head
 
     # create node to insert
-    node = kademlia.Node.from_id(bucket.start + 1)  # should not split
+    node = random_node()
+    node.id = bucket.start + 1  # should not split
     assert bucket.in_range(node)
     assert bucket == proto.routing.bucket_by_node(node)
 
@@ -241,11 +243,20 @@ def test_eviction_node_active():
     # expect a ping to bucket.head
     msg = wire.poll(eviction_candidate)
     assert msg[0] == 'ping'
-    assert msg[2] in proto._expected_pongs
+    assert msg[1] == proto.this_node
+    assert len(proto._expected_pongs) == 1
+    expected_pingid = proto._expected_pongs.keys()[0]
+    assert len(expected_pingid) == 96
+    echo = expected_pingid[:32]
+    assert len(echo) == 32
+
     assert wire.messages == []
+
     # reply in time
+    # can not check w/o mcd
     print 'sending pong'
-    proto.recv_pong(eviction_candidate, msg[2])
+    proto.recv_pong(eviction_candidate, echo)
+
     # expect no other messages
     assert wire.messages == []
 
@@ -276,7 +287,8 @@ def test_eviction_node_inactive():
     eviction_candidate = bucket.head
 
     # create node to insert
-    node = kademlia.Node.from_id(bucket.start + 1)  # should not split
+    node = random_node()
+    node.id = bucket.start + 1  # should not split
     assert bucket.in_range(node)
     assert bucket == proto.routing.bucket_by_node(node)
 
@@ -297,11 +309,17 @@ def test_eviction_node_inactive():
     # expect a ping to bucket.head
     msg = wire.poll(eviction_candidate)
     assert msg[0] == 'ping'
-    assert msg[2] in proto._expected_pongs
+    assert msg[1] == proto.this_node
+    assert len(proto._expected_pongs) == 1
+    expected_pingid = proto._expected_pongs.keys()[0]
+    assert len(expected_pingid) == 96
+    echo = expected_pingid[:32]
+    assert len(echo) == 32
     assert wire.messages == []
+
     # reply late
     time.sleep(kademlia.k_request_timeout)
-    proto.recv_pong(eviction_candidate, msg[2])
+    proto.recv_pong(eviction_candidate, echo)
 
     # expect no other messages
     assert wire.messages == []
@@ -333,7 +351,8 @@ def test_eviction_node_split():
     eviction_candidate = bucket.head
 
     # create node to insert
-    node = kademlia.Node.from_id(bucket.start + 1)  # should split
+    node = random_node()
+    node.id = bucket.start + 1  # should not split
     assert bucket.in_range(node)
     assert bucket == proto.routing.bucket_by_node(node)
 
@@ -383,10 +402,10 @@ def test_two():
     # print 'messages', wire.messages
     msg = wire.process([one, two], steps=2)
     # print 'messages', wire.messages
-    assert len(wire.messages) in (kademlia.k_bucket_size, kademlia.k_bucket_size + 1)
+    assert len(wire.messages) >= kademlia.k_bucket_size
     msg = wire.messages.pop(0)
     assert msg[1] == 'find_node'
-    for m in wire.messages[1:]:
+    for m in wire.messages[kademlia.k_find_concurrency:]:
         assert m[1] == 'ping'
     wire.empty()
 
