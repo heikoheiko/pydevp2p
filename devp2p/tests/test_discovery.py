@@ -203,6 +203,10 @@ def test_bootstrap_udp():
 
 def main():
     "test connecting nodes"
+
+    # exit on exception
+    gevent.get_hub().SYSTEM_ERROR += (ValueError, )
+
     app = get_app(30304, 'theapp')
     # app.config['p2p']['listen_host'] = '127.0.0.1'
     app.config['p2p']['listen_host'] = '0.0.0.0'
@@ -217,7 +221,7 @@ def main():
 
     # add external node
 
-    go_local = 'enode://ab16b8c7fc1febb74ceedf1349944ffd4a04d11802451d02e808f08cb3b0c1c1a9c4e1efb7d309a762baa4c9c8da08890b3b712d1666b5b630d6c6a09cbba171@127.0.0.1:30303'
+    go_local = 'enode://6ed2fecb28ff17dec8647f08aa4368b57790000e0e9b33a7b91f32c41b6ca9ba21600e9a8c44248ce63a71544388c6745fa291f88f8b81e109ba3da11f7b41b9@127.0.0.1:30303'
 
     go_bootstrap = 'enode://6cdd090303f394a1cac34ecc9f7cda18127eafa2a3a06de39f6d920b0e583e062a7362097c7c65ee490a758b442acd5c80c6fce4b148c6a391e946b45131365b@54.169.166.226:30303'
 

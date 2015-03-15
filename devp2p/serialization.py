@@ -16,6 +16,8 @@ def lrlp_decode(data):
 
 class Serializer(object):
 
+    SYNCHRONIZATION_TOKEN = 0x22400891
+
     disconnect_reasons_map = dict((
         ('Disconnect requested', 0x00),
         ('TCP sub-system error', 0x01),

@@ -154,7 +154,6 @@ class P2PProtocol(BaseProtocol):
     # identify the node.
     NODE_ID = sha3('test')  # set in config
     NETWORK_ID = 0
-    SYNCHRONIZATION_TOKEN = 0x22400891
 
     cmd_map = dict(hello=0, ping=1, pong=2, disconnect=3, getpeers=4, peers=5)
 
@@ -188,8 +187,8 @@ class P2PProtocol(BaseProtocol):
             self.send_hello()
 
     def _send_packet(self, cmd_name, data):
-        assert isinstance(list, data)
-        cmd_id = self.cmd_map['cmd_name'] + self.cmd_offset
+        assert isinstance(data, list)
+        cmd_id = self.cmd_map[cmd_name] + self.cmd_offset
         msg = serialization.Serializer.dump_packet([cmd_id] + data)
         self.peer.send(msg)
 
