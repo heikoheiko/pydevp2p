@@ -409,6 +409,9 @@ class KademliaProtocol(object):
                       expected=_expected_pongs(), pingid=pingid.encode('hex')[:8])
             if pingid in self._deleted_pingids:
                 log.debug('surprising pong was deleted')
+            else:
+                import sys
+                # sys.exit(1)
             return
 
         # check for timed out pings and eventually evict them
@@ -467,7 +470,10 @@ class KademliaProtocol(object):
         log.debug('updated', num_nodes=len(self.routing), num_buckets=len(self.routing.buckets))
 
     def _mkpingid(self, echoed, node):
-        return echoed + node.pubkey
+        assert node.pubkey
+        pid = echoed + node.pubkey
+        log.debug('mkpingid', echoed=echoed.encode('hex'), node=node.pubkey.encode('hex'))
+        return pid
 
     def ping(self, node, replacement=None):
         """
@@ -496,7 +502,7 @@ class KademliaProtocol(object):
     def recv_pong(self, remote, echoed):
         assert remote != self.this_node
         pingid = self._mkpingid(echoed, remote)
-        log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:4], local=self.this_node)
+        log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:8], local=self.this_node)
         self.update(remote, pingid)
 
     def _query_neighbours(self, targetid):
