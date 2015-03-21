@@ -15,7 +15,7 @@ Aside from the previously described exclusions, node discovery closely follows s
 and protocol described by Maymounkov and Mazieres.
 """
 
-from rlp import big_endian_to_int
+from utils import big_endian_to_int
 from crypto import sha3
 import operator
 import time
@@ -27,7 +27,7 @@ log = slogging.get_logger('kademlia')
 k_b = 8  # 8 bits per hop
 
 k_bucket_size = 16
-k_request_timeout = 300 / 1000.          # timeout of finde_node lookups
+k_request_timeout = 3 * 300 / 1000.      # timeout of message round trips
 k_idle_bucket_refresh_interval = 3600    # ping all nodes in bucket if bucket was idle
 k_find_concurrency = 3                   # parallel find node lookups
 k_pubkey_size = 512
@@ -410,8 +410,11 @@ class KademliaProtocol(object):
             if pingid in self._deleted_pingids:
                 log.debug('surprising pong was deleted')
             else:
-                import sys
-                # sys.exit(1)
+                for key in self._expected_pongs:
+                    if key.endswith(node.pubkey):
+                        log.debug('waiting for ping form node, but echo mismatch', node=node,
+                                  expected_echo=key[:len(node.pubkey)][:8].encode('hex'),
+                                  received_echo=pingid[:len(node.pubkey)][:8].encode('hex'))
             return
 
         # check for timed out pings and eventually evict them
@@ -507,9 +510,10 @@ class KademliaProtocol(object):
         pingid = self._mkpingid(echoed, remote)
         log.debug('recv pong', remote=remote, pingid=pingid.encode('hex')[:8], local=self.this_node)
         # update address (clumsy fixme)
-        nnodes = self.routing.neighbours(remote)
-        if nnodes and nnodes[0] == remote:
-            nnodes[0].address = remote.address  # updated tcp address
+        if hasattr(remote, 'address'):  # not available in tests
+            nnodes = self.routing.neighbours(remote)
+            if nnodes and nnodes[0] == remote:
+                nnodes[0].address = remote.address  # updated tcp address
         # update rest
         self.update(remote, pingid)
 
