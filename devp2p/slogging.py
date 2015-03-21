@@ -1,11 +1,13 @@
 import logging
 try:
-    from pyethereum.slogging import get_logger
+    from pyethereum.slogging import get_logger, configure
 except ImportError:
+    print 'could not import slogging'
     # patch logging to support kargs
     _log_orig = logging.Logger._log
+
     def _kargs_log(self, level, msg, args, exc_info=None, extra=None, **kargs):
-        msg += ' ' + ' '.join('%s=%r' % (k,v) for k,v in kargs.items())
+        msg += ' ' + ' '.join('%s=%r' % (k, v) for k, v in kargs.items())
         _log_orig(self, level, msg, args, exc_info, extra)
     logging.Logger._log = _kargs_log
     get_logger = logging.getLogger
