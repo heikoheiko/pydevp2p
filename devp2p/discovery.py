@@ -229,7 +229,6 @@ class DiscoveryProtocol(kademlia.WireInterface):
             // implementation w/MCD
         """
         msg = crypto.sha3(msg)
-        print msg[:8]
         return crypto.sign(msg, self.privkey)
 
     def pack(self, cmd_id, payload):

@@ -1,5 +1,14 @@
 #!/usr/bin/python
+"""
+https://github.com/ethereum/go-ethereum/blob/develop/crypto/ecies/ecies.go
 
+https://github.com/ethereum/cpp-ethereum/blob/develop/libp2p/RLPxHandshake.cpp#L48
+https://github.com/ethereum/cpp-ethereum/blob/develop/libdevcrypto/CryptoPP.cpp#L149
+
+ECIES
+http://www.cryptopp.com/wiki/Elliptic_Curve_Integrated_Encryption_Scheme
+https://en.wikipedia.org/wiki/Integrated_Encryption_Scheme
+"""
 CURVE = 'secp256k1'
 CIPHERNAME = 'aes-256-ctr'
 
@@ -24,6 +33,7 @@ if CIPHERNAME not in pyelliptic.Cipher.get_all_cipher():
 
 import bitcoin
 from sha3 import sha3_256
+from hashlib import sha256
 
 
 class ECCx(pyelliptic.ECC):
@@ -33,10 +43,14 @@ class ECCx(pyelliptic.ECC):
     and binding default curve and cipher
     """
 
-    def __init__(self, raw_pubkey, raw_privkey=None):
-        assert len(raw_pubkey) == 64  # 512bit
-        pubkey_x = raw_pubkey[:32]
-        pubkey_y = raw_pubkey[32:]
+    def __init__(self, raw_pubkey=None, raw_privkey=None):
+        if raw_privkey:
+            assert not raw_pubkey
+            raw_pubkey = privtopub(raw_privkey)
+        if raw_pubkey:
+            _, pubkey_x, pubkey_y, _ = self._decode_pubkey(raw_pubkey)
+        else:
+            pubkey_x, pubkey_y = None, None
         pyelliptic.ECC.__init__(self, pubkey_x=pubkey_x, pubkey_y=pubkey_y,
                                 raw_privkey=raw_privkey, curve=CURVE)
 
@@ -44,22 +58,72 @@ class ECCx(pyelliptic.ECC):
     def raw_pubkey(self):
         return self.pubkey_x + self.pubkey_y
 
+    @staticmethod
+    def _decode_pubkey(raw_pubkey):
+        assert len(raw_pubkey) == 64
+        pubkey_x = raw_pubkey[:32]
+        pubkey_y = raw_pubkey[32:]
+        return CURVE, pubkey_x, pubkey_y, 64
+
+    def get_ecdh_key(self, raw_pubkey):
+        "Compute public key with the local private key and returns a 256bits shared key"
+        _, pubkey_x, pubkey_y, _ = self._decode_pubkey(raw_pubkey)
+        key = self.raw_get_ecdh_key(pubkey_x, pubkey_y)
+        assert len(key) == 32
+        return key
+
     @property
     def raw_privkey(self):
         return self.privkey
-
-    @classmethod
-    def from_privkey(cls, raw_privkey):
-        return cls(raw_pubkey=privtopub(raw_privkey), raw_privkey=raw_privkey)
 
     @staticmethod
     def encrypt(data, raw_pubkey):
         assert len(raw_pubkey) == 64
         px, py = raw_pubkey[:32], raw_pubkey[32:]
-        return ECCx.raw_encrypt(data, px, py, curve=CURVE, ciphername=CIPHERNAME)
+        return ECCx._raw_encrypt(data, px, py, curve=CURVE, ciphername=CIPHERNAME)
 
-    def decrypt(self, data):
+    @staticmethod
+    def _raw_encrypt(data, pubkey_x, pubkey_y, curve=CURVE, ciphername=CIPHERNAME):
+        ephem = ECCx()
+        key = sha256(ephem.raw_get_ecdh_key(pubkey_x, pubkey_y)).digest()
+        key_e, key_m = key[:16], key[16:]
+        pubkey = ephem.raw_pubkey
+        assert len(pubkey) == 64
+        iv = pyelliptic.OpenSSL.rand(pyelliptic.OpenSSL.get_cipher(ciphername).get_blocksize())
+        assert len(iv) == 16
+        ctx = pyelliptic.Cipher(key_e, iv, 1, ciphername)
+        ciphertext = ctx.ciphering(data)
+        assert len(ciphertext) == len(data)
+        msg = chr(0x04) + pubkey + iv + ciphertext
+        mac = pyelliptic.hmac_sha256(key_m, msg)
+        assert len(mac) == 32
+        msg += mac
+        assert len(msg) == 1 + 64 + 16 + 32 + len(data) == 113 + len(data)
+        return msg
+
+    def _decrypt(self, data):
         return pyelliptic.ECC.decrypt(self, data, ciphername=CIPHERNAME)
+
+    def decrypt(self, data, ciphername=CIPHERNAME):
+        """
+        Decrypt data with ECIES method using the local private key
+
+        CIPHERNAME = 'aes-128-ctr' ???
+        """
+        blocksize = pyelliptic.OpenSSL.get_cipher(ciphername).get_blocksize()
+        assert data[0] == chr(0x04)
+        pubkey = data[1:1 + 64]
+        pubkey_x, pubkey_y = pubkey[:32], pubkey[32:],
+        iv = data[1 + 64:1 + 64 + blocksize]
+        ciphertext = data[1 + 64 + blocksize:- 32]
+        mac = data[-32:]
+        assert 1 + len(pubkey) + len(iv) + len(ciphertext) + len(mac) == len(data)
+        key = sha256(self.raw_get_ecdh_key(pubkey_x, pubkey_y)).digest()
+        key_e, key_m = key[:16], key[16:]
+        if not pyelliptic.equals(pyelliptic.hmac_sha256(key_m, data[:- 32]), mac):
+            raise RuntimeError("Fail to verify data")
+        ctx = pyelliptic.Cipher(key_e, iv, 0, ciphername)
+        return ctx.ciphering(ciphertext)
 
     def sign(self, data):
         """
