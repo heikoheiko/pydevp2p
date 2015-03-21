@@ -1,8 +1,25 @@
-import rlp
 import struct
 
-idec = rlp.big_endian_to_int
-ienc = rlp.int_to_big_endian
+
+def int_to_big_endian(integer):
+    '''convert a integer to big endian binary string'''
+    # 0 is a special case, treated same as ''
+    if integer == 0:
+        return ''
+    s = '%x' % integer
+    if len(s) & 1:
+        s = '0' + s
+    return s.decode('hex')
+
+ienc = int_to_big_endian
+
+
+def big_endian_to_int(string):
+    '''convert a big endian binary string to integer'''
+    # '' is a special case, treated same as 0
+    s = string.encode('hex') or '0'
+    return long(s, 16)
+idec = big_endian_to_int
 
 
 def recursive_int_to_big_endian(item):
