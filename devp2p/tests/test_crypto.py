@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 from devp2p import crypto
+import random
 
 
 def get_ecc(secret=''):
-    return crypto.ECCx.from_privkey(crypto.mk_privkey(secret))
+    return crypto.ECCx(raw_privkey=crypto.mk_privkey(secret))
 
 
 def test_asymetric():
