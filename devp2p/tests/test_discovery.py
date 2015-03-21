@@ -211,14 +211,11 @@ def main():
     app = get_app(30304, 'theapp')
     # app.config['p2p']['listen_host'] = '127.0.0.1'
     app.config['p2p']['listen_host'] = '0.0.0.0'
-    app.start()
 
     print "this node is"
     proto = app.services.discovery.protocol.kademlia
     this_node = proto.this_node
     print this_node.pubkey.encode('hex')
-
-    gevent.sleep(0.5)
 
     # add external node
 
@@ -226,7 +223,7 @@ def main():
 
     go_bootstrap = 'enode://6cdd090303f394a1cac34ecc9f7cda18127eafa2a3a06de39f6d920b0e583e062a7362097c7c65ee490a758b442acd5c80c6fce4b148c6a391e946b45131365b@54.169.166.226:30303'
 
-    cpp_bootstrap = 'enode://4a44599974518ea5b0f14c31c4463692ac0329cb84851f3435e6d1b18ee4eae4aa495f846a0fa1219bd58035671881d44423876e57db2abd57254d0197da0ebe@5.1.83.226:30303'
+    cpp_bootstrap = 'enode://24f904a876975ab5c7acbedc8ec26e6f7559b527c073c6e822049fee4df78f2e9c74840587355a068f2cdb36942679f7a377a6d8c5713ccf40b1d4b99046bba0@5.1.83.226:30303'
 
     n1 = 'enode://1d799d32547761cf66250f94b4ac1ebfc3246ce9bd87fbf90ef8d770faf48c4d96290ea0c72183d6c1ddca3d2725dad018a6c1c5d1971dbaa182792fa937e89d@162.247.54.200:1024'
     n2 = 'enode://1976e20d6ec2de2dd4df34d8e949994dc333da58c967c62ca84b4d545d3305942207565153e94367f5d571ef79ce6da93c5258e88ca14788c96fbbac40f4a4c7@52.0.216.64:30303'
@@ -234,17 +231,16 @@ def main():
 
     nb = 'enode://1976e20d6ec2de2dd4df34d8e949994dc333da58c967c62ca84b4d545d3305942207565153e94367f5d571ef79ce6da93c5258e88ca14788c96fbbac40f4a4c7@52.0.216.64:30303'
 
-    node_uri = go_local
+    node_uri = go_bootstrap
 
     r_node = discovery.Node.from_uri(node_uri)
     print "remote node is", r_node
     # add node to the routing table
-    kademlia.k_request_timeout = 20.
-    print "TEST PING BOOTSTRAPPING NODE"
-    proto.ping(r_node)
-    gevent.sleep(2.)
-    print "TEST BOOTSTRAP"
-    proto.bootstrap([r_node])
+
+    print "START & TEST BOOTSTRAP"
+    app.config['p2p']['bootstrap_nodes'] = [node_uri]
+    app.start()
+
     gevent.sleep(2.)
     print "TEST FIND_NODE"
     proto.find_node(this_node.id)
@@ -252,15 +248,13 @@ def main():
 
     pinged = lambda: set(n for t, n, r in proto._expected_pongs.values())
 
-    while len(proto.routing) < 5:
+    for i in range(10):
         print 'num nodes', len(proto.routing)
-        print 'TEST FIND MORE NODES (kill me)'
-        gevent.sleep(2)
+        gevent.sleep(1)
         # proto.find_node(this_node.id)
-        for node in proto.routing:
-            proto.ping(node)
+        # for node in proto.routing:
+        proto.ping(r_node)
         # proto.find_node(this_node.id)
-        break
 
     print 'nodes in routing'
     for node in proto.routing:
@@ -279,6 +273,15 @@ if __name__ == '__main__':
 
 """
 unexpected pongs from cpp client
+
+case:
+    bootstrap pubkey does not match
+
+
+
 versions would be good
 i get a ping reply by 2 nodes
+
+
+
 """

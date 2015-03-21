@@ -521,10 +521,15 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
         # start a listening server
         ip = self.app.config['p2p']['listen_host']
         port = self.app.config['p2p']['listen_port']
-        log.info('starting listener', port=port)
+        log.info('starting listener', port=port, host=ip)
         self.server = DatagramServer((ip, port), handle=self._handle_packet)
         self.server.start()
         super(NodeDiscovery, self).start()
+
+        # bootstap
+        nodes = [Node.from_uri(x) for x in self.app.config['p2p']['bootstrap_nodes']]
+        if nodes:
+            self.protocol.kademlia.bootstrap(nodes)
 
     def _run(self):
         log.debug('_run called')
