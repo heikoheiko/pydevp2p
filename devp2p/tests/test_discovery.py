@@ -25,6 +25,7 @@ def test_address():
     assert a4 == Address.from_binary(*b_a4)
 
     b_a6 = a6.to_binary()
+    assert len(b_a6) == 2
     assert a6 == Address.from_binary(*b_a6)
 
     e_a4 = a4.to_endpoint()
