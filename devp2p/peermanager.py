@@ -11,13 +11,23 @@ log = slogging.get_logger('peermgr')
 
 
 class PeerManager(BaseService):
+
     """
     todo:
         on peer Hello adds services to peer
         connects new peers if there are too few
         selects peers based on a DHT
         keeps track of peer reputation
-        saves/loads peers to disc
+        saves/loads peers (rather discovery buckets) to disc
+
+
+    connection strategy
+        while num peers > min_num_peers:
+                gen random id
+                resolve closest node address
+                connect closest node
+
+
 
     """
     name = 'peermanager'

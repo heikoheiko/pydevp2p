@@ -1,3 +1,4 @@
+# https://github.com/ethereum/go-ethereum/wiki/Blockpool
 import sys
 import time
 import gevent
