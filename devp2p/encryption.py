@@ -196,7 +196,7 @@ class RLPxSession(object):
         return auth_message
 
     def encrypt_auth_message(self, auth_message, remote_pubkey):
-        return encrypt(auth_message, remote_pubkey)
+        return self.node.ecies_encrypt(auth_message, remote_pubkey)
     encrypt_auth_ack_message = encrypt_auth_message
 
     def send_authentication(self, remote_node, ephermal_privkey=None):
@@ -213,7 +213,7 @@ class RLPxSession(object):
 
         optional: remote derives secrets and preemptively sends protocol-handshake (steps 9,11,8,10)
         """
-        auth_message = self.node.decrypt(ciphertext)
+        auth_message = self.node.ecies_decrypt(ciphertext)
         # S || H(ephemeral-pubk) || pubk || nonce || 0x[0|1]
         assert len(auth_message) == 65 + 32 + 64 + 32 + 1 == 194
         signature = auth_message[:65]

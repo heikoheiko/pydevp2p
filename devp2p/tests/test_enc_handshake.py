@@ -50,6 +50,25 @@ assert set(keys) == set(test_values.keys())
 # https://github.com/ethereum/cpp-ethereum/blob/develop/test/rlpx.cpp#L183
 
 
+def test_ecies_enc():
+    bob = devp2p.crypto.ECCx()
+    msg = 'test yeah'
+    ciphertext = devp2p.crypto.ECCx.ecies_encrypt(msg, bob.raw_pubkey)
+    _dec = bob.ecies_decrypt(ciphertext)
+    assert _dec == msg
+
+
+def test_ecies_enc2():
+    tv = test_values
+    from devp2p.crypto import ECCx
+    e = ECCx(raw_privkey=tv['receiver_private_key'])
+    _dec = e.ecies_decrypt(tv['auth_ciphertext'])
+    assert len(_dec) == len(tv['auth_plaintext'])
+    assert _dec == tv['auth_plaintext']
+
+
+
+
 def test_handshake():
     tv = test_values
     from devp2p.crypto import privtopub
@@ -67,15 +86,7 @@ def test_handshake():
     # test encryption
     _enc = initiator_session.encrypt_auth_message(tv['auth_plaintext'], responder_pubkey)
     assert len(_enc) == len(tv['auth_ciphertext'])
-    # assert _enc == tv['auth_ciphertext']
-
-    # test decryption
     assert len(tv['auth_ciphertext']) == 113 + len(tv['auth_plaintext'])  # len
-    assert tv['auth_ciphertext'][1:1 + 64] == responder_pubkey  # pub_key
-
-    _dec = responder_session.node.decrypt(tv['auth_ciphertext'])
-    assert len(_dec) == len(tv['auth_plaintext'])
-    assert _dec == tv['auth_plaintext']
 
     # test auth_msg plain
     auth_msg = initiator_session.create_auth_message(remote_pubkey=responder_pubkey,
