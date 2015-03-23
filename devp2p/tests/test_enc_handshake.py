@@ -96,12 +96,12 @@ def test_handshake():
         initiator_session.node.get_ecdh_key(responder_pubkey)
 
     # test decrypt
-    assert auth_msg == responder_session.node.decrypt(_auth_msg_cipher)
+    assert auth_msg == responder_session.node.ecies_decrypt(_auth_msg_cipher)
 
     # check receive
     responder_ephemeral_pubkey = privtopub(tv['receiver_ephemeral_private_key'])
     auth_msg_cipher = tv['auth_ciphertext']
-    auth_msg = responder_session.node.decrypt(auth_msg_cipher)
+    auth_msg = responder_session.node.ecies_decrypt(auth_msg_cipher)
     assert auth_msg[65:] == tv['auth_plaintext'][65:]  # starts with non deterministic k
 
     res = responder_session.receive_authentication(auth_msg_cipher)
