@@ -38,6 +38,8 @@ import struct
 import random
 import devp2p.utils as utils
 
+hmac_sha256 = pyelliptic.hmac_sha256
+
 
 class ECCx(pyelliptic.ECC):
 
@@ -139,7 +141,7 @@ class ECCx(pyelliptic.ECC):
 
         # the MAC of a message (called the tag) as per SEC 1, 3.5.
         # https://github.com/ethereum/go-ethereum/blob/develop/crypto/ecies/ecies.go#L162
-        tag = pyelliptic.hmac_sha256(key_mac, msg)
+        tag = hmac_sha256(key_mac, msg)
         assert len(tag) == 32
         msg += tag
 
@@ -177,7 +179,7 @@ class ECCx(pyelliptic.ECC):
         assert len(tag) == 32
 
         # 2) verify tag
-        if not pyelliptic.equals(pyelliptic.hmac_sha256(key_mac, data[:- 32]), tag):
+        if not pyelliptic.equals(hmac_sha256(key_mac, data[:- 32]), tag):
             raise RuntimeError("Fail to verify data")
 
         # 3) decrypt
