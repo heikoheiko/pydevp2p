@@ -27,12 +27,12 @@ else:
             import pyelliptic
             if CIPHERNAME in pyelliptic.Cipher.get_all_cipher():
                 break
-    if CIPHERNAME not in pyelliptic.Cipher.get_all_cipher():
-        print 'required cipher %s not available in openssl library' % CIPHERNAME
-        if sys.platform == 'darwin':
-            print 'use homebrew to install newer openssl'
-            print '> brew install openssl'
-        sys.exit(1)
+if CIPHERNAME not in pyelliptic.Cipher.get_all_cipher():
+    print 'required cipher %s not available in openssl library' % CIPHERNAME
+    if sys.platform == 'darwin':
+        print 'use homebrew to install newer openssl'
+        print '> brew install openssl'
+    sys.exit(1)
 
 import bitcoin
 from sha3 import sha3_256
