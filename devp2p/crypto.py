@@ -173,13 +173,22 @@ class ECCx(pyelliptic.ECC):
         assert len(key) == 32
         key_enc, key_mac = key[:16], key[16:]
 
-        key_mac = sha256(key_mac).digest()  # !!!
+        key_mac = sha256(key_mac).digest()
+        assert len(key_mac) == 32
 
         tag = data[-32:]
         assert len(tag) == 32
 
         # 2) verify tag
-        if not pyelliptic.equals(hmac_sha256(key_mac, data[:- 32]), tag):
+
+        _msg = data[:- 32]
+        assert len(_msg) == len(data) - 32
+        assert data.startswith(_msg)
+        assert data.endswith(tag)
+
+        if not pyelliptic.equals(hmac_sha256(key_mac, _msg), tag):
+            print hmac_sha256(key_mac, _msg).encode('hex')
+            print tag.encode('hex')
             raise RuntimeError("Fail to verify data")
 
         # 3) decrypt
@@ -274,13 +283,22 @@ def eciesKDF(key_material, key_len):
     for sha256, blocksize is 64 bytes
 
     NIST SP 800-56a Concatenation Key Derivation Function (see section 5.8.1).
+
+    https://github.com/ethereum/go-ethereum/blob/develop/crypto/ecies/ecies.go#L134
+    https://github.com/ethereum/cpp-ethereum/blob/develop/libdevcrypto/CryptoPP.cpp#L36
     """
+    s1 = ""
     key = ""
+    hash_blocksize = 64
+    reps = ((key_len + 7) * 8) / (hash_blocksize * 8)
+    print reps
     counter = 0
-    while len(key) < key_len:
+    while counter <= reps:
+        print counter
         counter += 1
         ctx = sha256()
-        ctx.update(key_material)
         ctx.update(struct.pack('>I', counter))
+        ctx.update(key_material)
+        ctx.update(s1)
         key += ctx.digest()
     return key[:key_len]

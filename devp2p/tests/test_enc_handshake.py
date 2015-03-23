@@ -67,8 +67,6 @@ def test_ecies_enc2():
     assert _dec == tv['auth_plaintext']
 
 
-
-
 def test_handshake():
     tv = test_values
     from devp2p.crypto import privtopub
