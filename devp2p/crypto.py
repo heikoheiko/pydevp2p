@@ -12,24 +12,27 @@ https://en.wikipedia.org/wiki/Integrated_Encryption_Scheme
 CURVE = 'secp256k1'
 CIPHERNAME = 'aes-256-ctr'
 
-# FIX PATH ON OS X ()
-# https://github.com/yann2192/pyelliptic/issues/11
 import os
 import sys
-_openssl_lib_paths = ['/usr/local/Cellar/openssl/']
-for p in _openssl_lib_paths:
-    if os.path.exists(p):
-        p = os.path.join(p, os.listdir(p)[-1], 'lib')
-        os.environ['DYLD_LIBRARY_PATH'] = p
-        import pyelliptic
-        if CIPHERNAME in pyelliptic.Cipher.get_all_cipher():
-            break
-if CIPHERNAME not in pyelliptic.Cipher.get_all_cipher():
-    print 'required cipher %s not available in openssl library' % CIPHERNAME
-    if sys.platform == 'darwin':
-        print 'use homebrew to install newer openssl'
-        print '> brew install openssl'
-    sys.exit(1)
+if sys.platform not in ('darwin',):
+    import pyelliptic
+else:
+    # FIX PATH ON OS X ()
+    # https://github.com/yann2192/pyelliptic/issues/11
+    _openssl_lib_paths = ['/usr/local/Cellar/openssl/']
+    for p in _openssl_lib_paths:
+        if os.path.exists(p):
+            p = os.path.join(p, os.listdir(p)[-1], 'lib')
+            os.environ['DYLD_LIBRARY_PATH'] = p
+            import pyelliptic
+            if CIPHERNAME in pyelliptic.Cipher.get_all_cipher():
+                break
+    if CIPHERNAME not in pyelliptic.Cipher.get_all_cipher():
+        print 'required cipher %s not available in openssl library' % CIPHERNAME
+        if sys.platform == 'darwin':
+            print 'use homebrew to install newer openssl'
+            print '> brew install openssl'
+        sys.exit(1)
 
 import bitcoin
 from sha3 import sha3_256
