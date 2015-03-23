@@ -141,7 +141,7 @@ class ECCx(pyelliptic.ECC):
 
         # the MAC of a message (called the tag) as per SEC 1, 3.5.
         # https://github.com/ethereum/go-ethereum/blob/develop/crypto/ecies/ecies.go#L162
-        tag = hmac_sha256(key_mac, msg)
+        tag = hmac_sha256(key_mac, msg[1 + 64:])
         assert len(tag) == 32
         msg += tag
 
@@ -180,15 +180,7 @@ class ECCx(pyelliptic.ECC):
         assert len(tag) == 32
 
         # 2) verify tag
-
-        _msg = data[:- 32]
-        assert len(_msg) == len(data) - 32
-        assert data.startswith(_msg)
-        assert data.endswith(tag)
-
-        if not pyelliptic.equals(hmac_sha256(key_mac, _msg), tag):
-            print hmac_sha256(key_mac, _msg).encode('hex')
-            print tag.encode('hex')
+        if not pyelliptic.equals(hmac_sha256(key_mac, data[1 + 64:- 32]), tag):
             raise RuntimeError("Fail to verify data")
 
         # 3) decrypt
@@ -291,10 +283,8 @@ def eciesKDF(key_material, key_len):
     key = ""
     hash_blocksize = 64
     reps = ((key_len + 7) * 8) / (hash_blocksize * 8)
-    print reps
     counter = 0
     while counter <= reps:
-        print counter
         counter += 1
         ctx = sha256()
         ctx.update(struct.pack('>I', counter))
