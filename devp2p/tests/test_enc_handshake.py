@@ -50,15 +50,7 @@ assert set(keys) == set(test_values.keys())
 # https://github.com/ethereum/cpp-ethereum/blob/develop/test/rlpx.cpp#L183
 
 
-def test_ecies_enc():
-    bob = devp2p.crypto.ECCx()
-    msg = 'test yeah'
-    ciphertext = devp2p.crypto.ECCx.ecies_encrypt(msg, bob.raw_pubkey)
-    _dec = bob.ecies_decrypt(ciphertext)
-    assert _dec == msg
-
-
-def test_ecies_enc2():
+def test_ecies_decrypt():
     tv = test_values
     from devp2p.crypto import ECCx
     e = ECCx(raw_privkey=tv['receiver_private_key'])

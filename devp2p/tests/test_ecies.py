@@ -1,6 +1,16 @@
 import devp2p.crypto as crypto
 
 
+def test_ecies_enc():
+    bob = crypto.ECCx()
+    msg = 'test yeah'
+    ciphertext = crypto.ECCx.ecies_encrypt(msg, bob.raw_pubkey)
+    _dec = bob.ecies_decrypt(ciphertext)
+    assert _dec == msg
+
+
+# tests from cpp client ##############################################
+
 def fromHex(x):
     return x[2:].decode('hex')
 
@@ -65,12 +75,16 @@ def test_decrypt():
     assert(kmExpected == kmPlain)
 
 
-def test_decrypt2():
+def test_privtopub():
     kenc = fromHex("0x472413e97f1fd58d84e28a559479e6b6902d2e8a0cee672ef38a3a35d263886b")
     penc = fromHex(
         "0x7a2aa2951282279dc1171549a7112b07c38c0d97c0fe2c0ae6c4588ba15be74a04efc4f7da443f6d61f68a9279bc82b73e0cc8d090048e9f87e838ae65dd8d4c")
     assert(penc == crypto.privtopub(kenc))
+    return kenc, penc
 
+
+def test_decrypt1():
+    kenc, penc = test_privtopub()
     cipher1 = fromHex(
         "0x046f647e1bd8a5cd1446d31513bac233e18bdc28ec0e59d46de453137a72599533f1e97c98154343420d5f16e171e5107999a7c7f1a6e26f57bcb0d2280655d08fb148d36f1d4b28642d3bb4a136f0e33e3dd2e3cffe4b45a03fb7c5b5ea5e65617250fdc89e1a315563c20504b9d3a72555")
 
@@ -78,12 +92,18 @@ def test_decrypt2():
     plainTest1 = crypto.ECCx(raw_privkey=kenc).ecies_decrypt(cipher1)
     assert(expectedPlain1 == plainTest1)
 
+
+def test_decrypt2():
+    kenc, penc = test_privtopub()
     cipher2 = fromHex(
         "0x0443c24d6ccef3ad095140760bb143078b3880557a06392f17c5e368502d79532bc18903d59ced4bbe858e870610ab0d5f8b7963dd5c9c4cf81128d10efd7c7aa80091563c273e996578403694673581829e25a865191bdc9954db14285b56eb0043b6288172e0d003c10f42fe413222e273d1d4340c38a2d8344d7aadcbc846ee")
     expectedPlain2 = "aaaaaaaaaaaaaaaa"
     plainTest2 = crypto.ECCx(raw_privkey=kenc).ecies_decrypt(cipher2)
     assert(expectedPlain2 == plainTest2)
 
+
+def test_decrypt3():
+    kenc, penc = test_privtopub()
     cipher3 = fromHex(
         "0x04c4e40c86bb5324e017e598c6d48c19362ae527af8ab21b077284a4656c8735e62d73fb3d740acefbec30ca4c024739a1fcdff69ecaf03301eebf156eb5f17cca6f9d7a7e214a1f3f6e34d1ee0ec00ce0ef7d2b242fbfec0f276e17941f9f1bfbe26de10a15a6fac3cda039904ddd1d7e06e7b96b4878f61860e47f0b84c8ceb64f6a900ff23844f4359ae49b44154980a626d3c73226c19e")
     expectedPlain3 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
