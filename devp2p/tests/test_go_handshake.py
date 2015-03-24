@@ -31,13 +31,16 @@ keys = ['initiator_private_key',
         'receiver_private_key',
         'initiator_ephemeral_private_key',
         'receiver_ephemeral_private_key',
-        'auth_plaintext',
-        'authresp_plaintext',
-        'auth_ciphertext',
-        'authresp_ciphertext',
-        'ecdhe_shared_secret',
         'initiator_nonce',
         'receiver_nonce',
+        # auth
+        'auth_plaintext',
+        'auth_ciphertext',
+        # auth response
+        'authresp_plaintext',
+        'authresp_ciphertext',
+        # on ack receive
+        'ecdhe_shared_secret',
         'aes_secret',
         'mac_secret',
         'token',
@@ -66,11 +69,11 @@ def test_handshake():
 
     initiator_pubkey = privtopub(tv['initiator_private_key'])
     initiator = LocalNode(tv['initiator_private_key'])
-    initiator_session = RLPxSession(None)
+    initiator_session = RLPxSession(ephemeral_privkey=tv['initiator_ephemeral_private_key'])
     initiator_session.node = initiator.ecc
     responder_pubkey = privtopub(tv['receiver_private_key'])
     responder = LocalNode(tv['receiver_private_key'])
-    responder_session = RLPxSession(None)
+    responder_session = RLPxSession(ephemeral_privkey=tv['receiver_ephemeral_private_key'])
     responder_session.node = responder.ecc
 
     # test encryption
@@ -104,11 +107,19 @@ def test_handshake():
     auth_msg = responder_session.node.ecies_decrypt(auth_msg_cipher)
     assert auth_msg[65:] == tv['auth_plaintext'][65:]  # starts with non deterministic k
 
-    res = responder_session.receive_authentication(auth_msg_cipher)
+    res = responder_session.decode_authentication(auth_msg_cipher)
     auth_ack_msg = responder_session.create_auth_ack_message(responder_ephemeral_pubkey,
                                                              tv['receiver_nonce'],
                                                              res['token_found'])
     assert auth_ack_msg == tv['authresp_plaintext']
     auth_ack_msg_cipher = responder_session.encrypt_auth_ack_message(
-        auth_ack_msg, res['remote_pubkey'])
+        auth_ack_msg, res['initiator_pubkey'])
     # assert auth_ack_msg_cipher == tv['authresp_ciphertext']
+
+    responder_session.setup_cipher()
+    responder_session.ecdhe_shared_secret == tv['ecdhe_shared_secret']
+    responder_session.aes_secret == tv['aes_secret']
+    responder_session.mac_secret == tv['mac_secret']
+    responder_session.token == tv['token']
+    responder_session.egress_mac.digest() == tv['initial_egress_MAC']
+    responder_session.ingress_mac.digest() == tv['initial_ingress_MAC']
