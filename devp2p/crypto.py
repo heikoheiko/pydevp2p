@@ -9,8 +9,8 @@ ECIES
 http://www.cryptopp.com/wiki/Elliptic_Curve_Integrated_Encryption_Scheme
 https://en.wikipedia.org/wiki/Integrated_Encryption_Scheme
 """
-CURVE = 'secp256k1'
-CIPHERNAME = 'aes-256-ctr'
+
+CIPHERNAMES = set(('aes-256-ctr', 'aes-128-ctr'))
 
 import os
 import sys
@@ -25,10 +25,10 @@ else:
             p = os.path.join(p, os.listdir(p)[-1], 'lib')
             os.environ['DYLD_LIBRARY_PATH'] = p
             import pyelliptic
-            if CIPHERNAME in pyelliptic.Cipher.get_all_cipher():
+            if CIPHERNAMES.issubset(set(pyelliptic.Cipher.get_all_cipher())):
                 break
-if CIPHERNAME not in pyelliptic.Cipher.get_all_cipher():
-    print 'required cipher %s not available in openssl library' % CIPHERNAME
+if not CIPHERNAMES.issubset(set(pyelliptic.Cipher.get_all_cipher())):
+    print 'required ciphers %r not available in openssl library' % CIPHERNAMES
     if sys.platform == 'darwin':
         print 'use homebrew to install newer openssl'
         print '> brew install openssl'
@@ -50,20 +50,24 @@ class ECCx(pyelliptic.ECC):
     Modified to work with raw_pubkey format used in RLPx
     and binding default curve and cipher
     """
+    ecies_ciphername = 'aes-128-ctr'
+    curve = 'secp256k1'
 
     def __init__(self, raw_pubkey=None, raw_privkey=None):
         if raw_privkey:
             assert not raw_pubkey
             raw_pubkey = privtopub(raw_privkey)
         if raw_pubkey:
+            assert len(raw_pubkey) == 64
             _, pubkey_x, pubkey_y, _ = self._decode_pubkey(raw_pubkey)
         else:
             pubkey_x, pubkey_y = None, None
         while True:
             pyelliptic.ECC.__init__(self, pubkey_x=pubkey_x, pubkey_y=pubkey_y,
-                                    raw_privkey=raw_privkey, curve=CURVE)
+                                    raw_privkey=raw_privkey, curve=self.curve)
             try:
-                bitcoin.get_privkey_format(self.raw_privkey)  # failed for some keys
+                if self.raw_privkey:
+                    bitcoin.get_privkey_format(self.raw_privkey)  # failed for some keys
                 valid_priv_key = True
             except AssertionError:
                 valid_priv_key = False
@@ -78,12 +82,12 @@ class ECCx(pyelliptic.ECC):
     def raw_pubkey(self):
         return self.pubkey_x + self.pubkey_y
 
-    @staticmethod
-    def _decode_pubkey(raw_pubkey):
+    @classmethod
+    def _decode_pubkey(cls, raw_pubkey):
         assert len(raw_pubkey) == 64
         pubkey_x = raw_pubkey[:32]
         pubkey_y = raw_pubkey[32:]
-        return CURVE, pubkey_x, pubkey_y, 64
+        return cls.curve, pubkey_x, pubkey_y, 64
 
     def get_ecdh_key(self, raw_pubkey):
         "Compute public key with the local private key and returns a 256bits shared key"
@@ -95,18 +99,6 @@ class ECCx(pyelliptic.ECC):
     @property
     def raw_privkey(self):
         return self.privkey
-
-    @staticmethod
-    def encrypt(data, raw_pubkey):
-        assert False
-        assert len(raw_pubkey) == 64
-        px, py = raw_pubkey[:32], raw_pubkey[32:]
-        return ECCx.raw_encrypt(data, px, py, curve=CURVE, ciphername=CIPHERNAME)
-
-    def _decrypt(self, data):
-        return pyelliptic.ECC.decrypt(self, data, ciphername=CIPHERNAME)
-
-    ecies_ciphername = 'aes-128-ctr'
 
     @classmethod
     def ecies_encrypt(cls, data, raw_pubkey):
@@ -207,6 +199,9 @@ class ECCx(pyelliptic.ECC):
         ctx = pyelliptic.Cipher(key_enc, iv, 0, self.ecies_ciphername)
         return ctx.ciphering(ciphertext)
 
+    encrypt = ecies_encrypt
+    decrypt = ecies_decrypt
+
     def sign(self, data):
         """
         pyelliptic.ECC.sign is DER-encoded
@@ -278,7 +273,7 @@ def encrypt(data, raw_pubkey):
     """
     Encrypt data with ECIES method using the public key of the recipient.
     """
-    assert len(raw_pubkey) == 64
+    assert len(raw_pubkey) == 64, 'invalid pubkey of len {}'.format(len(raw_pubkey))
     return ECCx.encrypt(data, raw_pubkey)
 
 

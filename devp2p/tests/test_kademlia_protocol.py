@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import random
 import time
-from rlp import int_to_big_endian
+from devp2p.utils import int_to_big_endian
 from devp2p import kademlia
 
 random.seed(42)

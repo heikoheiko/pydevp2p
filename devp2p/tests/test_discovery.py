@@ -126,7 +126,7 @@ def get_app(port, seed):
     config_p2p['listen_host'] = '127.0.0.1'
     config_p2p['listen_port'] = port
     config_p2p['privkey_hex'] = crypto.sha3(seed).encode('hex')
-
+    config_p2p['bootstrap_nodes'] = []
     # create app
     app = BaseApp(config)
     discovery.NodeDiscovery.register_with_app(app)

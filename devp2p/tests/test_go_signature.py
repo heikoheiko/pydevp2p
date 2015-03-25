@@ -6,7 +6,7 @@ def test_pyelliptic_sig():
     priv_seed = 'test'
     priv_key = mk_privkey(priv_seed)
     my_pubkey = privtopub(priv_key)
-    e = ECCx(my_pubkey, priv_key)
+    e = ECCx(raw_privkey=priv_key)
     msg = 'a'
     s = pyelliptic.ECC.sign(e, msg)
     s2 = pyelliptic.ECC.sign(e, msg)

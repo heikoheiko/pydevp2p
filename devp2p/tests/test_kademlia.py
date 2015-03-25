@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from devp2p import kademlia
 import random
-from rlp import int_to_big_endian
+from devp2p.utils import int_to_big_endian
 import math
 import json
 
