@@ -11,6 +11,11 @@ def test_valid_ecc():
     for i in range(100):
         e = get_ecc()
         assert len(e.raw_pubkey) == 64
+        assert e.is_valid_key(e.raw_pubkey)
+        assert e.is_valid_key(e.raw_pubkey, e.raw_privkey)
+
+    pubkey = '\x00' * 64
+    assert not e.is_valid_key(pubkey)
 
 
 def test_asymetric():

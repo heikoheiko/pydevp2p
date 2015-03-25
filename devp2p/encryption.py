@@ -203,7 +203,7 @@ class RLPxSession(object):
             S(ephemeral-privk, token ^ nonce) || H(ephemeral-pubk) || pubk || nonce || 0x1)
         """
         assert self.is_initiator
-
+        assert self.ecc.is_valid_key(remote_pubkey)
         self.remote_pubkey = remote_pubkey
 
         if not token:  # new
@@ -220,7 +220,7 @@ class RLPxSession(object):
         assert len(token_xor_nonce) == 32
 
         ephemeral_pubkey = self.ephemeral_ecc.raw_pubkey
-
+        assert self.ecc.is_valid_key(ephemeral_pubkey)
         assert len(ephemeral_pubkey) == 512 / 8
         # S(ephemeral-privk, ecdh-shared-secret ^ nonce)
         S = self.ephemeral_ecc.sign(token_xor_nonce)
@@ -269,6 +269,7 @@ class RLPxSession(object):
         signature = auth_message[:65]
         H_initiator_ephemeral_pubkey = auth_message[65:65 + 32]
         initiator_pubkey = auth_message[65 + 32:65 + 32 + 64]
+        assert self.ecc.is_valid_key(initiator_pubkey)
         self.remote_pubkey = initiator_pubkey
         self.initiator_nonce = auth_message[65 + 32 + 64:65 + 32 + 64 + 32]
         known_flag = bool(ord(auth_message[65 + 32 + 64 + 32:]))
@@ -289,7 +290,7 @@ class RLPxSession(object):
 
         # recover initiator ephemeral pubkey
         self.remote_ephemeral_pubkey = ecdsa_recover(signed, signature)
-
+        assert self.ecc.is_valid_key(self.remote_ephemeral_pubkey)
         assert ecdsa_verify(self.remote_ephemeral_pubkey, signature, signed)
 
         # checks that recovery of signature == H(ephemeral-pubk)
@@ -317,6 +318,7 @@ class RLPxSession(object):
         auth_ack_message = self.ecc.ecies_decrypt(ciphertext)
         assert len(auth_ack_message) == 64 + 32 + 1
         self.remote_ephemeral_pubkey = auth_ack_message[:64]
+        assert self.ecc.is_valid_key(self.remote_ephemeral_pubkey)
         self.responder_nonce = auth_ack_message[64:64 + 32]
         self.remote_token_found = bool(ord(auth_ack_message[-1]))
 
@@ -327,6 +329,7 @@ class RLPxSession(object):
         assert self.auth_init
         assert self.auth_ack
         assert self.remote_ephemeral_pubkey
+        assert self.ecc.is_valid_key(self.remote_ephemeral_pubkey)
 
         # derive base secrets from ephemeral key agreement
         # ecdhe-shared-secret = ecdh.agree(ephemeral-privkey, remote-ephemeral-pubk)

@@ -100,6 +100,14 @@ class ECCx(pyelliptic.ECC):
     def raw_privkey(self):
         return self.privkey
 
+    def is_valid_key(self, raw_pubkey, raw_privkey=None):
+        try:
+            assert len(raw_pubkey) == 64
+            failed = bool(self.raw_check_key(raw_privkey, raw_pubkey[:32], raw_pubkey[32:]))
+        except (AssertionError, Exception):
+            failed = True
+        return not failed
+
     @classmethod
     def ecies_encrypt(cls, data, raw_pubkey):
         """
