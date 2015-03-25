@@ -145,7 +145,7 @@ class ECCx(pyelliptic.ECC):
         ephem_pubkey = ephem.raw_pubkey
 
         # encrypt
-        iv = utils.ienc(random.getrandbits(16 * 8))
+        iv = pyelliptic.Cipher.gen_IV(cls.ecies_ciphername)
         assert len(iv) == 16
         ctx = pyelliptic.Cipher(key_enc, iv, 1, cls.ecies_ciphername)
         ciphertext = ctx.ciphering(data)
