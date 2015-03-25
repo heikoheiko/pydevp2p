@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import random
+import struct
 from devp2p.crypto import sha3
 from sha3 import sha3_256
 from devp2p.crypto import ECCx
@@ -13,6 +14,7 @@ import Crypto.Cipher.AES as AES
 
 def sxor(s1, s2):
     "string xor"
+    assert len(s1) == len(s2)
     return ''.join(chr(ord(a) ^ ord(b)) for a, b in zip(s1, s2))
 
 
@@ -86,10 +88,8 @@ class RLPxSession(object):
     remote_ephemeral_pubkey = None
     initiator_nonce = None
     responder_nonce = None
-    auth_sent_init = None
-    auth_recvd_ack = None
-    auth_sent_ack = None
-    auth_recvd_init = None
+    auth_init = None
+    auth_ack = None
     token = None
     aes_secret = None
     aes_enc = None
@@ -97,23 +97,14 @@ class RLPxSession(object):
     mac_enc = None
     egress_mac = None
     ingress_mac = None
-    remote_node = None
     _authentication_sent = False
     is_ready = False
-    is_initiator = False
+    remote_token_found = False
+    remote_pubkey = None
 
-    session_states = (None, 'auth_sent', 'auth_received', 'ready')
-    session_roles = ('initiator', 'responder')
-
-    def __init__(self, peer=None, ephemeral_privkey=None):
-        # persisted peer data. keys are the nodeid
-        # session data
-        self.peer = peer
-        if peer:
-            self.node = peer.local_node.ecc
-        else:
-            self.node = None
-        self.session_state = None
+    def __init__(self, ecc, is_initiator=False, ephemeral_privkey=None):
+        self.ecc = ecc
+        self.is_initiator = is_initiator
         self.ephemeral_ecc = ECCx(raw_privkey=ephemeral_privkey)
 
     def __repr__(self):
@@ -121,8 +112,8 @@ class RLPxSession(object):
 
     def encrypt(self, header, frame):
         """
-        # https://github.com/ethereum/go-ethereum/blob/develop/p2p/rlpx.go#L156
-        # https://github.com/ethereum/cpp-ethereum/blob/f9a0fdda39af29564ed108767c7c0ffd94d61c2d/libp2p/RLPxFrameIO.cpp#L190
+        # https://github.com/ethereum/go-ethereum/blob/develop/p2p/rlpx.go
+        # https://github.com/ethereum/cpp-ethereum/blob/develop/libp2p/RLPxFrameIO.cpp
         """
         assert self.is_ready is True
 
@@ -141,11 +132,17 @@ class RLPxSession(object):
         header_mac = mac(sxor(self.mac_enc(mac()[:16]), header_ciphertext))[:16]
 
         # frame
+
+        if len(frame) % 16:  # padding
+            frame += '\x00' * (16 - len(frame) % 16)
+
         frame_ciphertext = aes(frame)
         assert len(frame_ciphertext) == len(frame)
-        # egress-mac.update(aes(mac-secret,egress-mac) ^ left128(egress-mac.update(frame-ciphertext).digest))
-        current_digest = mac()
-        frame_mac = mac(sxor(self.mac_enc(current_digest[:16]), mac(frame_ciphertext)[:16]))[:16]
+        # egress-mac.update(aes(mac-secret,egress-mac) ^
+        # left128(egress-mac.update(frame-ciphertext).digest))
+        fmac_seed = mac(frame_ciphertext)
+        frame_mac = mac(sxor(self.mac_enc(mac()[:16]), fmac_seed[:16]))[:16]
+
         return header_ciphertext + header_mac + frame_ciphertext + frame_mac
 
     def decrypt(self, data):
@@ -163,20 +160,32 @@ class RLPxSession(object):
 
         # ingress-mac.update(aes(mac-secret,ingress-mac) ^ header-ciphertext).digest
         expected_header_mac = mac(sxor(self.mac_enc(mac()[:16]), header_ciphertext))[:16]
+        # expected_header_mac = self.updateMAC(self.ingress_mac, header_ciphertext)
         assert expected_header_mac == header_mac
         header = aes(header_ciphertext)
+
+        frame_size = struct.unpack('>I', '\x00' + header[:3])[0]
+        assert frame_size <= len(data) - 32
+        read_size = frame_size
+        if read_size % 16:
+            read_size += 16 - read_size % 16
+        assert read_size == len(data) - 32 - 16
 
         # FIXME check frame length in header
         # assume datalen == framelen for now
         frame_ciphertext = data[32:-16]
+        assert frame_ciphertext == data[32:32 + read_size]
         frame_mac = data[-16:]
-        # ingres-mac.update(aes(mac-secret,ingres-mac) ^ left128(ingres-mac.update(frame-ciphertext).digest))
-        current_digest = mac()
-        expected_frame_mac = mac(
-            sxor(self.mac_enc(current_digest[:16]), mac(frame_ciphertext)[:16]))[:16]
+        assert frame_mac == data[32 + read_size:]
+        assert len(frame_mac) == 16
+
+        # ingres-mac.update(aes(mac-secret,ingres-mac) ^
+        # left128(ingres-mac.update(frame-ciphertext).digest))
+        fmac_seed = mac(frame_ciphertext)
+        expected_frame_mac = mac(sxor(self.mac_enc(mac()[:16]), fmac_seed[:16]))[:16]
         assert frame_mac == expected_frame_mac
 
-        frame = aes(frame_ciphertext)
+        frame = aes(frame_ciphertext)[:frame_size]
         return dict(header=header, frame=frame)
 
     def create_auth_message(self, remote_pubkey, token=None, ephemeral_privkey=None, nonce=None):
@@ -193,23 +202,22 @@ class RLPxSession(object):
         E(remote-pubk,
             S(ephemeral-privk, token ^ nonce) || H(ephemeral-pubk) || pubk || nonce || 0x1)
         """
+        assert self.is_initiator
+
+        self.remote_pubkey = remote_pubkey
 
         if not token:  # new
-            ecdh_shared_secret = self.node.get_ecdh_key(remote_pubkey)
+            ecdh_shared_secret = self.ecc.get_ecdh_key(remote_pubkey)
             token = ecdh_shared_secret
             flag = 0x0
         else:
             flag = 0x1
 
-        self.initiator_nonce = nonce or ienc(random.randint(0, 2 ** 256 - 1))
+        self.initiator_nonce = nonce or sha3(ienc(random.randint(0, 2 ** 256 - 1)))
         assert len(self.initiator_nonce) == 32
 
         token_xor_nonce = sxor(token, self.initiator_nonce)
         assert len(token_xor_nonce) == 32
-
-        # generate session ephemeral key
-        if not ephemeral_privkey:
-            ephemeral_privkey = sha3(ienc(random.randint(0, 2 ** 256 - 1)))
 
         ephemeral_pubkey = self.ephemeral_ecc.raw_pubkey
 
@@ -219,29 +227,31 @@ class RLPxSession(object):
         assert len(S) == 65
 
         # S || H(ephemeral-pubk) || pubk || nonce || 0x0
-        auth_message = S + sha3(ephemeral_pubkey) + self.node.raw_pubkey + \
+        auth_message = S + sha3(ephemeral_pubkey) + self.ecc.raw_pubkey + \
             self.initiator_nonce + chr(flag)
         assert len(auth_message) == 65 + 32 + 64 + 32 + 1 == 194
         return auth_message
 
     def encrypt_auth_message(self, auth_message, remote_pubkey):
-        self.auth_sent_init = self.node.ecies_encrypt(auth_message, remote_pubkey)
-        return self.auth_sent_init
+        assert self.is_initiator
+        self.auth_init = self.ecc.ecies_encrypt(auth_message, remote_pubkey)
+        return self.auth_init
 
     def encrypt_auth_ack_message(self, auth_message, remote_pubkey):
-        self.auth_sent_ack = self.node.ecies_encrypt(auth_message, remote_pubkey)
-        return self.auth_sent_ack
+        assert not self.is_initiator
+        self.auth_ack = self.ecc.ecies_encrypt(auth_message, remote_pubkey)
+        return self.auth_ack
 
     def send_authentication(self, remote_node, ephermal_privkey=None):
-        self.is_initiator = True
         auth_message = self.create_auth_message(remote_node, ephermal_privkey)
         self.peer.send(auth_message)
         self._authentication_sent = True
 
     def receive_authentication(self, ciphertext):
+        assert not self.is_initiator
         self.decode_authentication(ciphertext)
 
-    def decode_authentication(self, ciphertext):
+    def decode_authentication(self, ciphertext, get_token_cb=None):
         """
         3. optionally, remote decrypts and verifies auth
             (checks that recovery of signature == H(ephemeral-pubk))
@@ -250,82 +260,81 @@ class RLPxSession(object):
 
         optional: remote derives secrets and preemptively sends protocol-handshake (steps 9,11,8,10)
         """
-        self.auth_recvd_init = ciphertext
-        auth_message = self.node.ecies_decrypt(ciphertext)
+        assert not self.is_initiator
+
+        self.auth_init = ciphertext
+        auth_message = self.ecc.ecies_decrypt(ciphertext)
         # S || H(ephemeral-pubk) || pubk || nonce || 0x[0|1]
         assert len(auth_message) == 65 + 32 + 64 + 32 + 1 == 194
         signature = auth_message[:65]
         H_initiator_ephemeral_pubkey = auth_message[65:65 + 32]
         initiator_pubkey = auth_message[65 + 32:65 + 32 + 64]
+        self.remote_pubkey = initiator_pubkey
         self.initiator_nonce = auth_message[65 + 32 + 64:65 + 32 + 64 + 32]
-        known_flag = auth_message[65 + 32 + 64 + 32:]
+        known_flag = bool(ord(auth_message[65 + 32 + 64 + 32:]))
 
         # token or new ecdh_shared_secret
-        token_database = dict()  # FIXME
-        token_found = False
-        if known_flag == 1:
-            token = token_database.get(initiator_pubkey)
-            if token:
-                token_found = True
+        if known_flag:
+            self.remote_token_found = True
+            # hat todo if remote has token, but local forgot it?
+            token = get_token_cb(initiator_pubkey)
+            assert token
         else:
-            token = ecdh_shared_secret = self.node.get_ecdh_key(initiator_pubkey)  # ???
+            token = ecdh_shared_secret = self.ecc.get_ecdh_key(initiator_pubkey)  # ???
 
         # verify auth
         # S(ephemeral-privk, ecdh-shared-secret ^ nonce)
-        ecdh_shared_secret = self.node.get_ecdh_key(initiator_pubkey)
+        ecdh_shared_secret = self.ecc.get_ecdh_key(initiator_pubkey)
         signed = sxor(ecdh_shared_secret, self.initiator_nonce)
 
         # recover initiator ephemeral pubkey
-        self.initiator_ephemeral_pubkey = ecdsa_recover(signed, signature)
+        self.remote_ephemeral_pubkey = ecdsa_recover(signed, signature)
 
-        assert ecdsa_verify(self.initiator_ephemeral_pubkey, signature, signed)
+        assert ecdsa_verify(self.remote_ephemeral_pubkey, signature, signed)
 
         # checks that recovery of signature == H(ephemeral-pubk)
-        assert H_initiator_ephemeral_pubkey == sha3(self.initiator_ephemeral_pubkey)
+        assert H_initiator_ephemeral_pubkey == sha3(self.remote_ephemeral_pubkey)
 
-        return dict(initiator_ephemeral_pubkey=self.initiator_ephemeral_pubkey,
-                    token=token,
-                    token_found=token_found,
-                    ecdh_shared_secret=ecdh_shared_secret,
-                    initiator_pubkey=initiator_pubkey,
-                    nonce=self.initiator_nonce,
-                    known_flag=known_flag
-                    )
-
-    def create_auth_ack_message(self, remote_ephemeral_pubkey, nonce, token_found=False):
+    def create_auth_ack_message(self, ephemeral_pubkey=None, nonce=None, token_found=False):
         """
         authRecipient = E(remote-pubk, remote-ephemeral-pubk || nonce || 0x1) // token found
         authRecipient = E(remote-pubk, remote-ephemeral-pubk || nonce || 0x0) // token not found
 
         nonce and empehemeral-pubk are local!
         """
-        self.responder_nonce = nonce  # FIXME
+        assert not self.is_initiator
+        ephemeral_pubkey = ephemeral_pubkey or self.ephemeral_ecc.raw_pubkey
+        self.responder_nonce = nonce or sha3(ienc(random.randint(0, 2 ** 256 - 1)))
+
         flag = chr(1 if token_found else 0)
-        msg = remote_ephemeral_pubkey + nonce + flag
+        msg = ephemeral_pubkey + self.responder_nonce + flag
         assert len(msg) == 64 + 32 + 1 == 97
         return msg
 
     def decode_auth_ack_message(self, ciphertext):
-        self.auth_recvd_ack = ciphertext
-        auth_ack_message = self.node.ecies_decrypt(ciphertext)
+        assert self.is_initiator
+        self.auth_ack = ciphertext
+        auth_ack_message = self.ecc.ecies_decrypt(ciphertext)
         assert len(auth_ack_message) == 64 + 32 + 1
-        self.responder_ephemeral_pubkey = auth_ack_message[:64]
+        self.remote_ephemeral_pubkey = auth_ack_message[:64]
         self.responder_nonce = auth_ack_message[64:64 + 32]
-        token_found_flag = ord(auth_ack_message[-1])
+        self.remote_token_found = bool(ord(auth_ack_message[-1]))
 
     def setup_cipher(self):
+        # https://github.com/ethereum/cpp-ethereum/blob/develop/libp2p/RLPxFrameIO.cpp#L34
+        assert self.responder_nonce
+        assert self.initiator_nonce
+        assert self.auth_init
+        assert self.auth_ack
+        assert self.remote_ephemeral_pubkey
 
+        # derive base secrets from ephemeral key agreement
         # ecdhe-shared-secret = ecdh.agree(ephemeral-privkey, remote-ephemeral-pubk)
-        if self.is_initiator:
-            other_pub = self.responder_ephemeral_pubkey
-        else:
-            other_pub = self.initiator_ephemeral_pubkey
+        ecdhe_shared_secret = self.ephemeral_ecc.get_ecdh_key(self.remote_ephemeral_pubkey)
 
-        ecdhe_shared_secret = self.ephemeral_ecc.get_ecdh_key(other_pub)
-
-        # shared-secret = sha3(ecdhe-shared-secret || sha3(initiator-nonce || remote-nonce))
+        # shared-secret = sha3(ecdhe-shared-secret || sha3(nonce || initiator-nonce))
         shared_secret = sha3(
-            ecdhe_shared_secret + sha3(self.initiator_nonce + self.responder_nonce))
+            ecdhe_shared_secret + sha3(self.responder_nonce + self.initiator_nonce))
 
         self.ecdhe_shared_secret = ecdhe_shared_secret  # FIXME DEBUG
         self.shared_secret = shared_secret   # FIXME DEBUG
@@ -339,23 +348,20 @@ class RLPxSession(object):
         # mac-secret = sha3(ecdhe-shared-secret || aes-secret)
         self.mac_secret = sha3(ecdhe_shared_secret + self.aes_secret)
 
+        # setup sha3 instances for the MACs
+        # egress-mac = sha3.update(mac-secret ^ recipient-nonce || auth-sent-init)
+        mac1 = sha3_256(sxor(self.mac_secret, self.responder_nonce) + self.auth_init)
+        # ingress-mac = sha3.update(mac-secret ^ initiator-nonce || auth-recvd-ack)
+        mac2 = sha3_256(sxor(self.mac_secret, self.initiator_nonce) + self.auth_ack)
+
         if self.is_initiator:
-            # egress-mac = sha3.update(mac-secret ^ recipient-nonce || auth-sent-init)
-            self.egress_mac = sha3_256(
-                sxor(self.mac_secret, self.responder_nonce) + self.auth_sent_init)
-            # ingress-mac = sha3.update(mac-secret ^ initiator-nonce || auth-recvd-ack)
-            self.ingress_mac = sha3_256(
-                sxor(self.mac_secret, self.initiator_nonce) + self.auth_recvd_ack)
+            self.egress_mac, self.ingress_mac = mac1, mac2
         else:
-            # egress-mac = sha3.update(mac-secret ^ initiator-nonce || auth-sent-ack)
-            self.egress_mac = sha3_256(
-                sxor(self.mac_secret, self.initiator_nonce) + self.auth_sent_ack)
-            # ingress-mac = sha3.update(mac-secret ^ recipient-nonce || auth-recvd-init)
-            self.ingress_mac = sha3_256(
-                sxor(self.mac_secret, self.responder_nonce) + self.auth_recvd_init)
+            self.egress_mac, self.ingress_mac = mac2, mac1
 
         ciphername = 'aes-256-ctr'
-        iv = pyelliptic.Cipher.gen_IV(ciphername)
+        iv = "\x00" * 16
+        assert len(iv) == 16
         self.aes_enc = pyelliptic.Cipher(self.aes_secret, iv, 1, ciphername=ciphername)
         self.aes_dec = pyelliptic.Cipher(self.aes_secret, iv, 0, ciphername=ciphername)
         self.mac_enc = AES.AESCipher(self.mac_secret, AES.MODE_ECB).encrypt
