@@ -7,6 +7,12 @@ def get_ecc(secret=''):
     return crypto.ECCx(raw_privkey=crypto.mk_privkey(secret))
 
 
+def test_valid_ecc():
+    for i in range(100):
+        e = get_ecc()
+        assert len(e.raw_pubkey) == 64
+
+
 def test_asymetric():
     bob = get_ecc('secret2')
 

@@ -2,7 +2,8 @@
 # https://github.com/ethereum/cpp-ethereum/blob/develop/test/rlpx.cpp#L183
 # https://gist.github.com/fjl/6dd7f51f1bf226488e00
 
-import devp2p.crypto
+from devp2p.encryption import RLPxSession
+from devp2p.crypto import ECCx, privtopub
 test_values = \
     {
         "initiator_private_key": "5e173f6ac3c669587538e7727cf19b782a4f2fda07c1eaa662c593e5e85e3051",
@@ -20,7 +21,9 @@ test_values = \
         "mac_secret": "48c938884d5067a1598272fcddaa4b833cd5e7d92e8228c0ecdfabbe68aef7f1",
         "token": "3f9ec2592d1554852b1f54d228f042ed0a9310ea86d038dc2b401ba8cd7fdac4",
         "initial_egress_MAC": "09771e93b1a6109e97074cbe2d2b0cf3d3878efafe68f53c41bb60c0ec49097e",
-        "initial_ingress_MAC": "75823d96e23136c89666ee025fb21a432be906512b3dd4a3049e898adb433847"
+        "initial_ingress_MAC": "75823d96e23136c89666ee025fb21a432be906512b3dd4a3049e898adb433847",
+        "initiator_hello_packet": "6ef23fcf1cec7312df623f9ae701e63b550cdb8517fefd8dd398fc2acd1d935e6e0434a2b96769078477637347b7b01924fff9ff1c06df2f804df3b0402bbb9f87365b3c6856b45e1e2b6470986813c3816a71bff9d69dd297a5dbd935ab578f6e5d7e93e4506a44f307c332d95e8a4b102585fd8ef9fc9e3e055537a5cec2e9",
+        "receiver_hello_packet": "6ef23fcf1cec7312df623f9ae701e63be36a1cdd1b19179146019984f3625d4a6e0434a2b96769050577657247b7b02bc6c314470eca7e3ef650b98c83e9d7dd4830b3f718ff562349aead2530a8d28a8484604f92e5fced2c6183f304344ab0e7c301a0c05559f4c25db65e36820b4b909a226171a60ac6cb7beea09376d6d8"
     }
 
 for k, v in test_values.items():
@@ -45,7 +48,11 @@ keys = ['initiator_private_key',
         'mac_secret',
         'token',
         'initial_egress_MAC',
-        'initial_ingress_MAC']
+        'initial_ingress_MAC',
+        # messages
+        'initiator_hello_packet',
+        'receiver_hello_packet'
+        ]
 
 assert set(keys) == set(test_values.keys())
 
@@ -55,7 +62,6 @@ assert set(keys) == set(test_values.keys())
 
 def test_ecies_decrypt():
     tv = test_values
-    from devp2p.crypto import ECCx
     e = ECCx(raw_privkey=tv['receiver_private_key'])
     _dec = e.ecies_decrypt(tv['auth_ciphertext'])
     assert len(_dec) == len(tv['auth_plaintext'])
@@ -64,62 +70,76 @@ def test_ecies_decrypt():
 
 def test_handshake():
     tv = test_values
-    from devp2p.crypto import privtopub
-    from devp2p.encryption import RemoteNode, Peer, Transport, LocalNode, RLPxSession
 
-    initiator_pubkey = privtopub(tv['initiator_private_key'])
-    initiator = LocalNode(tv['initiator_private_key'])
-    initiator_session = RLPxSession(ephemeral_privkey=tv['initiator_ephemeral_private_key'])
-    initiator_session.node = initiator.ecc
-    responder_pubkey = privtopub(tv['receiver_private_key'])
-    responder = LocalNode(tv['receiver_private_key'])
-    responder_session = RLPxSession(ephemeral_privkey=tv['receiver_ephemeral_private_key'])
-    responder_session.node = responder.ecc
+    initiator = RLPxSession(ECCx(raw_privkey=tv['initiator_private_key']),
+                            is_initiator=True,
+                            ephemeral_privkey=tv['initiator_ephemeral_private_key'])
+    initiator_pubkey = initiator.ecc.raw_pubkey
+    responder = RLPxSession(ECCx(raw_privkey=tv['receiver_private_key']),
+                            ephemeral_privkey=tv['receiver_ephemeral_private_key'])
+    responder_pubkey = responder.ecc.raw_pubkey
 
     # test encryption
-    _enc = initiator_session.encrypt_auth_message(tv['auth_plaintext'], responder_pubkey)
+    _enc = initiator.encrypt_auth_message(tv['auth_plaintext'], responder_pubkey)
     assert len(_enc) == len(tv['auth_ciphertext'])
     assert len(tv['auth_ciphertext']) == 113 + len(tv['auth_plaintext'])  # len
 
     # test auth_msg plain
-    auth_msg = initiator_session.create_auth_message(remote_pubkey=responder_pubkey,
-                                                     token=None,
-                                                     ephemeral_privkey=tv[
-                                                         'initiator_ephemeral_private_key'],
-                                                     nonce=tv['initiator_nonce'])
+    auth_msg = initiator.create_auth_message(remote_pubkey=responder_pubkey,
+                                             token=None,
+                                             ephemeral_privkey=tv[
+                                                 'initiator_ephemeral_private_key'],
+                                             nonce=tv['initiator_nonce'])
 
     # test auth_msg plain
     assert len(auth_msg) == len(tv['auth_plaintext']) == 194
     assert auth_msg[65:] == tv['auth_plaintext'][65:]  # starts with non deterministic k
 
-    _auth_msg_cipher = initiator_session.encrypt_auth_message(auth_msg, responder_pubkey)
+    _auth_msg_cipher = initiator.encrypt_auth_message(auth_msg, responder_pubkey)
 
     # test shared
-    responder_session.node.get_ecdh_key(initiator_pubkey) == \
-        initiator_session.node.get_ecdh_key(responder_pubkey)
+    responder.ecc.get_ecdh_key(initiator_pubkey) == \
+        initiator.ecc.get_ecdh_key(responder_pubkey)
 
     # test decrypt
-    assert auth_msg == responder_session.node.ecies_decrypt(_auth_msg_cipher)
+    assert auth_msg == responder.ecc.ecies_decrypt(_auth_msg_cipher)
 
     # check receive
     responder_ephemeral_pubkey = privtopub(tv['receiver_ephemeral_private_key'])
     auth_msg_cipher = tv['auth_ciphertext']
-    auth_msg = responder_session.node.ecies_decrypt(auth_msg_cipher)
+    auth_msg = responder.ecc.ecies_decrypt(auth_msg_cipher)
     assert auth_msg[65:] == tv['auth_plaintext'][65:]  # starts with non deterministic k
 
-    res = responder_session.decode_authentication(auth_msg_cipher)
-    auth_ack_msg = responder_session.create_auth_ack_message(responder_ephemeral_pubkey,
-                                                             tv['receiver_nonce'],
-                                                             res['token_found'])
+    responder.decode_authentication(auth_msg_cipher)
+    auth_ack_msg = responder.create_auth_ack_message(responder_ephemeral_pubkey,
+                                                     tv['receiver_nonce'],
+                                                     responder.remote_token_found
+                                                     )
     assert auth_ack_msg == tv['authresp_plaintext']
-    auth_ack_msg_cipher = responder_session.encrypt_auth_ack_message(
-        auth_ack_msg, res['initiator_pubkey'])
-    # assert auth_ack_msg_cipher == tv['authresp_ciphertext']
+    auth_ack_msg_cipher = responder.encrypt_auth_ack_message(auth_ack_msg, responder.remote_pubkey)
 
-    responder_session.setup_cipher()
-    responder_session.ecdhe_shared_secret == tv['ecdhe_shared_secret']
-    responder_session.aes_secret == tv['aes_secret']
-    responder_session.mac_secret == tv['mac_secret']
-    responder_session.token == tv['token']
-    responder_session.egress_mac.digest() == tv['initial_egress_MAC']
-    responder_session.ingress_mac.digest() == tv['initial_ingress_MAC']
+    # set auth ack msg cipher (needed later for mac calculation)
+    responder.auth_ack = tv['authresp_ciphertext']
+
+    responder.setup_cipher()
+    assert responder.ecdhe_shared_secret == tv['ecdhe_shared_secret']
+    assert len(responder.token) == len(tv['token'])
+    assert responder.token == tv['token']
+    assert responder.aes_secret == tv['aes_secret']
+    assert responder.mac_secret == tv['mac_secret']
+
+    assert responder.initiator_nonce == tv['initiator_nonce']
+    assert responder.responder_nonce == tv['receiver_nonce']
+
+    assert responder.auth_init == tv['auth_ciphertext']
+    assert responder.auth_ack == tv['authresp_ciphertext']
+
+    # test values are from initiator perspective?
+    assert responder.ingress_mac.digest() == tv['initial_egress_MAC']
+    assert responder.ingress_mac.digest() == tv['initial_egress_MAC']
+    assert responder.egress_mac.digest() == tv['initial_ingress_MAC']
+    assert responder.egress_mac.digest() == tv['initial_ingress_MAC']
+
+    r = responder.decrypt(tv['initiator_hello_packet'])
+    print repr(r['header'])
+    print repr(r['frame'])
