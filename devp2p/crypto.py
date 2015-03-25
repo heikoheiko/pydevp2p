@@ -59,8 +59,20 @@ class ECCx(pyelliptic.ECC):
             _, pubkey_x, pubkey_y, _ = self._decode_pubkey(raw_pubkey)
         else:
             pubkey_x, pubkey_y = None, None
-        pyelliptic.ECC.__init__(self, pubkey_x=pubkey_x, pubkey_y=pubkey_y,
-                                raw_privkey=raw_privkey, curve=CURVE)
+        while True:
+            pyelliptic.ECC.__init__(self, pubkey_x=pubkey_x, pubkey_y=pubkey_y,
+                                    raw_privkey=raw_privkey, curve=CURVE)
+            try:
+                bitcoin.get_privkey_format(self.raw_privkey)  # failed for some keys
+                valid_priv_key = True
+            except AssertionError:
+                valid_priv_key = False
+            if len(self.raw_pubkey) == 64 and valid_priv_key:
+                break
+            elif raw_privkey or raw_pubkey:
+                raise Exception('invalid priv or pubkey')
+
+        assert len(self.raw_pubkey) == 64
 
     @property
     def raw_pubkey(self):
