@@ -1,5 +1,88 @@
-import sys
-from devp2p.multiplexer import Multiplexer, Packet
+from devp2p.multiplexer import Multiplexer, Packet, Frame, DeserializationError
+
+
+def test_frame():
+    mux = Multiplexer()
+    p0 = 0
+    mux.add_protocol(p0)
+
+    # test normal packet
+    packet0 = Packet(p0, cmd_id=0, payload='x' * 100)
+    mux.add_packet(packet0)
+    frames = mux.pop_frames()
+    assert len(frames) == 1
+    f = frames[0]
+    message = f.as_bytes()
+
+    # check framing
+    fs = f.frame_size()
+    assert len(message) == fs
+    _fs = 16 + 16 + len(f.enc_cmd_id) + len(packet0.payload) + 16
+    _fs += Frame.padding - _fs % Frame.padding
+    assert fs == _fs
+    assert message[32 + len(f.enc_cmd_id):].startswith(packet0.payload)
+
+    packets = mux.decode(message)
+    assert len(mux._cached_decode_buffer) == 0
+    assert len(packets[0].payload) == len(packet0.payload)
+    assert packets[0].payload == packet0.payload
+    assert packets[0] == packet0
+
+
+def test_chunked():
+    mux = Multiplexer()
+    p0, p1, p2 = 0, 1, 2
+    mux.add_protocol(p0)
+    mux.add_protocol(p1)
+    mux.add_protocol(p2)
+
+    # big packet
+    print 'size', mux.max_window_size * 2
+    packet1 = Packet(p1, cmd_id=0, payload='\x00' * mux.max_window_size * 2 + 'x')
+    mux.add_packet(packet1)
+    frames = mux.pop_all_frames()
+    all_frames_length = sum(f.frame_size() for f in frames)
+    assert sum(len(f.payload) for f in frames) == len(packet1.payload)
+    for i, f, in enumerate(frames):
+        print i, f.frame_size()
+        print 'frame payload', len(f.payload)
+        print f._frame_type()
+    mux.add_packet(packet1)
+    message = mux.pop_all_frames_as_bytes()
+    assert len(message) == all_frames_length
+    packets = mux.decode(message)
+    assert len(mux._cached_decode_buffer) == 0
+    assert packets[0].payload == packet1.payload
+    assert packets[0] == packet1
+    assert len(packets) == 1
+
+
+def test_remain():
+    mux = Multiplexer()
+    p0, p1, p2 = 0, 1, 2
+    mux.add_protocol(p0)
+    mux.add_protocol(p1)
+    mux.add_protocol(p2)
+
+    # test buffer remains, incomplete frames
+    packet1 = Packet(p1, cmd_id=0, payload='\x00' * 100)
+    mux.add_packet(packet1)
+    message = mux.pop_all_frames_as_bytes()
+    tail = message[:50]
+    message += tail
+    packets = mux.decode(message)
+    assert packets[0] == packet1
+    assert len(packets) == 1
+    assert len(mux._cached_decode_buffer) == len(tail)
+
+    # test buffer decode with invalid data
+    message = message[1:]
+    exception_raised = False
+    try:
+        packets = mux.decode(message)
+    except DeserializationError:
+        exception_raised = True
+    assert exception_raised
 
 
 def test_multiplexer():
@@ -18,7 +101,7 @@ def test_multiplexer():
     assert mux.num_active_protocols == 0
 
     # test normal packet
-    packet0 = Packet(p0, cmd_id=0, payload='\x00' * 100)
+    packet0 = Packet(p0, cmd_id=0, payload='x' * 100)
 
     mux.add_packet(packet0)
     assert mux.num_active_protocols == 1
@@ -26,23 +109,26 @@ def test_multiplexer():
     frames = mux.pop_frames()
     assert len(frames) == 1
     f = frames[0]
-    assert len(f.to_string()) == f.frame_size() - 32 - 16
+    assert len(f.as_bytes()) == f.frame_size()
 
     mux.add_packet(packet0)
     assert mux.num_active_protocols == 1
     message = mux.pop_all_frames_as_bytes()
-    packets, remain = mux.decode_frames(message)
+    packets = mux.decode(message)
+    assert len(packets[0].payload) == len(packet0.payload)
+    assert packets[0].payload == packet0.payload
     assert packets[0] == packet0
 
     # nothing left to pop
     assert len(mux.pop_frames()) == 0
 
+    # big packet
     packet1 = Packet(p1, cmd_id=0, payload='\x00' * mux.max_window_size * 2)
     mux.add_packet(packet1)
 
     # decode packets from buffer
     message = mux.pop_all_frames_as_bytes()
-    packets, remain = mux.decode_frames(message)
+    packets = mux.decode(message)
     assert packets[0].payload == packet1.payload
     assert packets[0] == packet1
     assert len(packets) == 1
@@ -53,7 +139,7 @@ def test_multiplexer():
     mux.add_packet(packet0)
     mux.add_packet(packet2)
     message = mux.pop_all_frames_as_bytes()
-    packets, remain = mux.decode_frames(message)
+    packets = mux.decode(message)
     assert packets == [packet2, packet0, packet1]
 
     # packets with different protocols
@@ -67,7 +153,7 @@ def test_multiplexer():
     assert mux.next_protocol == p0
     # thus next with data is p1 w/ packet3
     message = mux.pop_all_frames_as_bytes()
-    packets, remain = mux.decode_frames(message)
+    packets = mux.decode(message)
     assert packets == [packet3, packet2, packet0, packet3, packet3, packet1]
 
     # test buffer remains, incomplete frames
@@ -76,12 +162,9 @@ def test_multiplexer():
     message = mux.pop_all_frames_as_bytes()
     tail = message[:50]
     message += tail
-    packets, remain = mux.decode_frames(message)
+    packets = mux.decode(message)
     assert packets[0] == packet1
     assert len(packets) == 1
-    assert len(remain) == len(tail)
+    assert len(mux._cached_decode_buffer) == len(tail)
 
-    # test buffer decode with invalid data
-    message = message[1:]
-    packets, remain = mux.decode_frames(message)
 

@@ -5,14 +5,49 @@ import struct
 
 """
 Questions:
-    packet_type length and endcoding (bigendian signed?)    : preliminary YES
-    is data in the payload really wrapped into rlp?         : preliminary YES
-    how is a packet build (cmd_id, rlp(payload))?           : preliminary Packet
     total-packet-size == total_payload_size ???             : preliminary YES
 
 Improvements:
     use memoryview
 """
+
+# chunked-0: rlp.list(protocol-type, sequence-id, total-packet-size)
+header_data_sedes = rlp.sedes.List([rlp.sedes.big_endian_int] * 3, strict=False)
+
+
+def ceil16(x):
+    return x if x % 16 == 0 else x + 16 - (x % 16)
+
+
+def rzpad16(data):
+    if len(data) % 16:
+        data += '\x00' * (16 - len(data) % 16)
+    return data
+
+
+class DeserializationError(Exception):
+    pass
+
+
+class FrameCipherBase(object):
+    mac_len = 16
+    header_len = 32
+    dummy_mac = '\x00' * mac_len
+    block_size = 16
+
+    def encrypt(self, header, frame):
+        assert len(header) == self.header_len
+        assert len(frame) % self.block_size == 0
+        return header + self.mac + frame + self.mac
+
+    def decrypt_header(self, data):
+        assert len(data) >= self.header_len + self.mac_len + 1 + self.mac_len
+        return data[:self.header_len]
+
+    def decrypt_body(self, data, body_size):
+        assert len(data) >= self.header_len + self.mac_len + body_size + self.mac_len
+        frame_offset = self.header_len + self.mac_len
+        return data[frame_offset:frame_offset + body_size]
 
 
 class Frame(object):
@@ -41,18 +76,23 @@ class Frame(object):
     """
 
     header_size = 16
-    header_mac_size = 16
-    payload_mac_size = 32
-    frame_base_size = header_size + header_mac_size + payload_mac_size
+    mac_size = 16
+    padding = 16
     is_chunked_0 = False
     total_payload_size = None  # only used with chunked_0
+    frame_cipher = None
+    cipher_called = False
 
     def __init__(self, protocol_id, cmd_id, payload, sequence_id, window_size,
-                 is_chunked_n=False, frames=None):
+                 is_chunked_n=False, frames=None, frame_cipher=None):
         assert isinstance(window_size, int)
+        assert window_size % self.padding == 0
         assert isinstance(cmd_id, int) and cmd_id < 256
         self.cmd_id = cmd_id
         self.payload = payload
+        if frame_cipher:
+            # assert isinstance(frame_cipher, FrameCipherBase)  # fixme
+            self.frame_cipher = frame_cipher
         self.frames = frames or []
         assert protocol_id < 2**16
         self.protocol_id = protocol_id
@@ -69,12 +109,14 @@ class Frame(object):
                 self.total_payload_size = len(payload)
             # chunk payload
             self.payload = payload[:window_size - fs]
+            assert self.frame_size() <= window_size
             remain = payload[len(self.payload):]
             assert len(remain) + len(self.payload) == len(payload)
-            assert self.frame_size() <= window_size
             Frame(protocol_id, cmd_id, remain, sequence_id + 1, window_size,
                   is_chunked_n=True,
-                  frames=self.frames)
+                  frames=self.frames,
+                  frame_cipher=frame_cipher)
+        assert self.frame_size() <= window_size
 
     def __repr__(self):
         return '<Frame(%s, len=%d sid=%r)>' % \
@@ -83,9 +125,17 @@ class Frame(object):
     def _frame_type(self):
         return 'normal' * self.is_normal or 'chunked_0' * self.is_chunked_0 or 'chunked_n'
 
-    def frame_size(self, data_len=0):
-        # header16 || mac16 || dataN || mac32
-        return self.frame_base_size + (data_len or len(self.body))
+    def body_size(self, padded=False):
+        # frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
+        # frame relates to body w/o padding w/o mac
+        l = len(self.enc_cmd_id) + len(self.payload)
+        if padded:
+            l = ceil16(l)
+        return l
+
+    def frame_size(self):
+        # header16 || mac16 || dataN + [padding] || mac16
+        return self.header_size + self.mac_size + self.body_size(padded=True) + self.mac_size
 
     @property
     def is_normal(self):
@@ -97,62 +147,76 @@ class Frame(object):
         header: frame-size || header-data || padding
         frame-size: 3-byte integer size of frame, big endian encoded
         header-data:
-            normal, chunked-n: rlp.list(protocol-type[, sequence-id])
+            normal: rlp.list(protocol-type[, sequence-id])
             chunked-0: rlp.list(protocol-type, sequence-id, total-packet-size)
+            chunked-n: rlp.list(protocol-type, sequence-id)
+            normal, chunked-n: rlp.list(protocol-type[, sequence-id])
             values:
                 protocol-type: < 2**16
                 sequence-id: < 2**16 (this value is optional for normal frames)
                 total-packet-size: < 2**32
         padding: zero-fill to 16-byte boundary
         """
-        def i16(_int):
-            return struct.pack('>I', _int)[2:]
-
         assert self.protocol_id < 2**16
         assert self.sequence_id is None or self.sequence_id < 2**16
-        l = [i16(self.protocol_id)]
+        l = [self.protocol_id]
         if self.is_chunked_0:
             assert self.sequence_id is not None
-            l.append(i16(self.sequence_id))
-            l.append(struct.pack('>I', self.total_payload_size))
+            l.append(self.sequence_id)
+            l.append(self.total_payload_size)
         elif self.sequence_id:  # normal, chunked_n
-            l.append(i16(self.sequence_id))
-        header_data = rlp.encode(l)
-        frame_size = self.frame_size()
-        assert frame_size < 256**3
-        header = struct.pack('>I', frame_size)[1:] + header_data
-        header += '\x00' * (self.header_size - len(header))
+            l.append(self.sequence_id)
+        header_data = rlp.encode(l, sedes=header_data_sedes)
+        assert l == rlp.decode(header_data, sedes=header_data_sedes, strict=False)
+        print 'header after encoding', repr(header_data), l
+        # write body_size to header
+        # frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
+        # frame relates to body w/o padding w/o mac
+        body_size = self.body_size()
+        assert body_size < 256**3
+        header = struct.pack('>I', body_size)[1:] + header_data
+        header = rzpad16(header)  # padding
+        assert len(header) == self.header_size
         return header
+
+    @property
+    def enc_cmd_id(self):
+        if not self.is_chunked_n:
+            return rlp.encode(self.cmd_id, sedes=rlp.sedes.big_endian_int)  # unsigned byte
+        return ''
 
     @property
     def body(self):
         """
-        packet:
-        normal, chunked-0: rlp(packet-type) [|| rlp(packet-data)] || padding
-        chunked-n: packet-data || padding
-
-        padding: zero-fill to 16-byte boundary
-
-        Q: rlp(data) or rlp_data
+        frame:
+            normal: rlp(packet-type) [|| rlp(packet-data)] || padding
+            chunked-0: rlp(packet-type) || rlp(packet-data...)
+            chunked-n: rlp(...packet-data) || padding
+        padding: zero-fill to 16-byte boundary (only necessary for last frame)
         """
-        b = ''
-        # packet-type
-        if not self.is_chunked_n:
-            b += rlp.encode(struct.pack("B", self.cmd_id))  # unsigned byte
-            # payload
-            b += rlp.encode(self.payload)
-        else:
-            b += self.payload
+        b = self.enc_cmd_id  # packet-type
+        b += self.payload
         # padding
-        if len(b) % 16:
-            b += '\0' * (1 - len(b) % 16)
+        b = rzpad16(b)
         return b
 
     def get_frames(self):
         return self.frames
 
-    def to_string(self):
-        return self.header + self.body
+    def as_bytes(self):
+        assert not self.cipher_called  # must only be called once
+        if not self.frame_cipher:
+            assert len(self.header) == 16 == self.header_size
+            assert len(self.body) == self.body_size(padded=True)
+            dummy_mac = '\x00' * self.mac_size
+            r = self.header + dummy_mac + self.body + dummy_mac
+            assert len(r) == self.frame_size()
+            return r
+        else:
+            self.cipher_called = True
+            e = self.frame_cipher.encrypt(self.header, self.body)
+            assert len(e) == self.frame_size()
+            return e
 
 
 class Packet(object):
@@ -210,8 +274,14 @@ class Multiplexer(object):
 
     max_window_size = 8 * 1024
     max_priority_frame_size = 1024
+    frame_cipher = None
+    _cached_decode_header = None
+    _cached_decode_buffer = ''
 
-    def __init__(self):
+    def __init__(self, frame_cipher=None):
+        if frame_cipher:
+            # assert isinstance(frame_cipher, FrameCipherBase)
+            self.frame_cipher = frame_cipher
         self.queues = OrderedDict()  # protocol_id : dict(normal=queue, chunked=queue, prio=queue)
         self.sequence_id = 0
         self.last_protocol = None  # last protocol, which sent data to the buffer
@@ -231,9 +301,10 @@ class Multiplexer(object):
         initial pws = 8kb
         """
         if protocol_id and not self.is_active_protocol(protocol_id):
-            return self.max_window_size / (1 + self.num_active_protocols)
+            s = self.max_window_size / (1 + self.num_active_protocols)
         else:
-            return self.max_window_size / max(1, self.num_active_protocols)
+            s = self.max_window_size / max(1, self.num_active_protocols)
+        return s - s % 16  # should be a multiple of padding size
 
     def add_protocol(self, protocol_id):
         assert protocol_id not in self.queues
@@ -256,7 +327,8 @@ class Multiplexer(object):
         #protocol_id, cmd_id, rlp_data, prioritize=False
         frames = Frame(packet.protocol_id, packet.cmd_id, packet.payload,
                        sequence_id=self.sequence_id,
-                       window_size=self.protocol_window_size(packet.protocol_id)
+                       window_size=self.protocol_window_size(packet.protocol_id),
+                       frame_cipher=self.frame_cipher
                        ).frames
         self.sequence_id = frames[-1].sequence_id + 1
         queues = self.queues[packet.protocol_id]
@@ -312,6 +384,9 @@ class Multiplexer(object):
         return frames
 
     def pop_frames(self):
+        """
+        returns the frames for the next protocol up to protocol window size bytes
+        """
         protocols = self.queues.keys()
         idx = protocols.index(self.next_protocol)
         protocols = protocols[idx:] + protocols[:idx]
@@ -332,96 +407,134 @@ class Multiplexer(object):
         return frames
 
     def pop_all_frames_as_bytes(self):
-        return ''.join(f.to_string() for f in self.pop_all_frames())
+        return ''.join(f.as_bytes() for f in self.pop_all_frames())
 
-    def decode_frame(self, buffer):
+    def decode_header(self, buffer):
+        assert len(buffer) >= 32
+        if self.frame_cipher:
+            header = self.frame_cipher.decrypt_header(buffer[:Frame.header_size + Frame.mac_size])
+        else:
+            # header: frame-size || header-data || padding
+            header = buffer[:Frame.header_size]
+        return header
+
+    def decode_body(self, buffer, header=None):
         """
         w/o encryption
-        peak into buffer for frame_size
+        peak into buffer for body_size
 
         return None if buffer is not long enough to decode frame
         """
-
         if len(buffer) < Frame.header_size:
             return None, buffer
 
-        def d16(data):
-            return struct.unpack('>I', '\x00\x00' + data)[0]
+        if not header:
+            header = self.decode_header(buffer[:Frame.header_size + Frame.mac_size])
 
-        def garbage_collect(protocol_id):
-            """
-            chunked packets of a sub protocol are send in order
-            thus if a new frame_0 of a subprotocol is received others must be removed
-            """
-            for sid, packet in self.chunked_buffers.items():
-                if packet.protocol_id == protocol_id:
-                    del self.chunked_buffers[sid]
+        body_size = struct.unpack('>I', '\x00' + header[:3])[0]
 
-        # header: frame-size || header-data || padding
-        # frame-size: 3-byte integer size of frame, big endian encoded
-        frame_size = struct.unpack('>I', '\x00' + buffer[:3])[0]
+        if self.frame_cipher:
+            body = self.frame_cipher.decrypt_body(buffer[Frame.header_size + Frame.mac_size:],
+                                                  body_size)
+            assert len(body) == body_size
+            bytes_read = Frame.header_size + Frame.mac_size + ceil16(len(body)) + Frame.mac_size
+        else:
+            # header: frame-size || header-data || padding
+            header = buffer[:Frame.header_size]
+            # frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
+            # frame relates to body w/o padding w/o mac
+            print 'body_size', body_size
+            body_offset = Frame.header_size + Frame.mac_size
+            print 'body_offset', body_offset
+            body = buffer[body_offset:body_offset + body_size]
+            assert len(body) == body_size
+            bytes_read = ceil16(body_offset + body_size + Frame.mac_size)
+            print 'bytes_read', bytes_read
+        assert bytes_read % Frame.padding == 0
 
-        # FIXME: frames are calculated with MACs, which we don't have yet
-        real_no_mac_frame_size = frame_size - 16 - 32
-        remain = buffer[real_no_mac_frame_size:]
-        if len(buffer) < real_no_mac_frame_size:
-            return None, buffer
-        buffer = buffer[:real_no_mac_frame_size]
-        # END FIXME
-
-        header_data = rlp.decode(buffer[3:Frame.header_size])
         # normal, chunked-n: rlp.list(protocol-type[, sequence-id])
         # chunked-0: rlp.list(protocol-type, sequence-id, total-packet-size)
+        print 'header before decoding', repr(header[3:])
+        try:
+            header_data = rlp.decode(header[3:], sedes=header_data_sedes, strict=False)
+        except rlp.RLPException:
+            raise DeserializationError('invalid rlp data')
 
         if len(header_data) == 3:
             chunked_0 = True
             # total-packet-size: < 2**32
-            total_payload_size = struct.unpack('>I', header_data[2])[0]
+            total_payload_size = header_data[2]
+            assert total_payload_size < 2**32
         else:
             chunked_0 = False
             total_payload_size = None
 
         # protocol-type: < 2**16
-        protocol_id = d16(header_data[0])
+        protocol_id = header_data[0]
+        assert protocol_id < 2**16
         # sequence-id: < 2**16 (this value is optional for normal frames)
         if len(header_data) > 1:
-            sequence_id = d16(header_data[1])
+            sequence_id = header_data[1]
+            assert sequence_id < 2**16
         else:
             sequence_id = None
 
+        print 'sequence_id', sequence_id, sequence_id in self.chunked_buffers
         # build packet
-        body_offset = Frame.header_size
         if sequence_id in self.chunked_buffers:
             # body chunked-n: packet-data || padding
             packet = self.chunked_buffers.pop(sequence_id)
-            packet.payload += buffer[body_offset:]
+            print 'adding %d bytes to packet.payload' % len(body)
+            packet.payload += body
             if packet.total_payload_size == len(packet.payload):
                 del packet.total_payload_size
-                return packet, remain
+                return packet
             self.chunked_buffers[sequence_id + 1] = packet
         else:
             # body normal, chunked-0: rlp(packet-type) [|| rlp(packet-data)] || padding
-            cmd_id = rlp.big_endian_to_int(rlp.decode(buffer[body_offset]))
+            item, end = rlp.codec.consume_item(body, 0)
+            print 'end', end
+            cmd_id = rlp.sedes.big_endian_int.deserialize(item)
+            print 'creating packet w/', len(body[end:])
             packet = Packet(protocol_id=protocol_id,
                             cmd_id=cmd_id,
-                            payload=rlp.decode(buffer[body_offset + 1:]))
+                            payload=body[end:])
             if chunked_0:
-                garbage_collect(protocol_id)
-                assert sequence_id
+                """
+                chunked packets of a sub protocol are sent in order
+                thus if a new frame_0 of a subprotocol is received others must be removed
+                should probably drop connection
+                """
+                for sid, packet in self.chunked_buffers.items():
+                    if packet.protocol_id == protocol_id:
+                        del self.chunked_buffers[sid]
+                assert sequence_id is not None
                 packet.total_payload_size = total_payload_size
                 self.chunked_buffers[sequence_id + 1] = packet
             else:  # normal
-                return packet, remain
-        return None, remain  # for chunked, not finished data
+                return packet
 
-    def decode_frames(self, buffer):
-        packets = []
-        remain = last_remain = buffer
-        while True:
-            packet, remain = self.decode_frame(remain)
+    def decode(self, data=''):
+        if data:
+            self._cached_decode_buffer += data
+        if not self._cached_decode_header:
+            if len(self._cached_decode_buffer) < Frame.header_size + Frame.mac_size:
+                return []
+            else:
+                self._cached_decode_header = self.decode_header(self._cached_decode_buffer)
+
+        body_size = struct.unpack('>I', '\x00' + self._cached_decode_header[:3])[0]
+        required_len = Frame.header_size + Frame.mac_size + ceil16(body_size) + Frame.mac_size
+        if len(self._cached_decode_buffer) >= required_len:
+            print
+            print 'decoding', required_len, 'of', len(self._cached_decode_buffer)
+            packet = self.decode_body(self._cached_decode_buffer, self._cached_decode_header)
+            self._cached_decode_header = None
+            self._cached_decode_buffer = self._cached_decode_buffer[required_len:]
+            print 'remaining', len(self._cached_decode_buffer)
             if packet:
-                packets.append(packet)
-            elif remain == last_remain:
-                break
-            last_remain = remain
-        return packets, remain
+                print 'have packet'
+                return [packet] + self.decode()
+            else:
+                return self.decode()
+        return []

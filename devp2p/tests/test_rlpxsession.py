@@ -1,6 +1,7 @@
 
 from devp2p.encryption import RLPxSession, InsufficientCipherTextLengthError
 from devp2p.crypto import mk_privkey, ECCx, sha3
+from devp2p.multiplexer import Multiplexer, Packet
 import struct
 
 
@@ -34,6 +35,22 @@ def test_session():
     assert responder.mac_secret == initiator.mac_secret
 
     return initiator, responder
+
+
+def test_multiplexing():
+    initiator, responder = test_session()
+    imux = Multiplexer(frame_cipher=initiator)
+    rmux = Multiplexer(frame_cipher=responder)
+    p1 = 1
+    imux.add_protocol(p1)
+    rmux.add_protocol(p1)
+
+    packet1 = Packet(p1, cmd_id=0, payload='\x00' * 100)
+    imux.add_packet(packet1)
+    msg = imux.pop_all_frames_as_bytes()
+    packets = rmux.decode(msg)
+    assert len(packets) == 1
+    assert packet1 == packets[0]
 
 
 def test_many_sessions():
