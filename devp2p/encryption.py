@@ -149,8 +149,9 @@ class RLPxSession(object):
 
         return header_ciphertext + header_mac + frame_ciphertext + frame_mac
 
-    def decrypt(self, data):
+    def decrypt_header(self, data):
         assert self.is_ready is True
+        assert len(data) == 32
 
         def aes(data=''):
             return self.aes_dec.update(data)
@@ -166,19 +167,29 @@ class RLPxSession(object):
         expected_header_mac = mac(sxor(self.mac_enc(mac()[:16]), header_ciphertext))[:16]
         # expected_header_mac = self.updateMAC(self.ingress_mac, header_ciphertext)
         assert expected_header_mac == header_mac
-        header = aes(header_ciphertext)
+        return aes(header_ciphertext)
+
+    def decrypt_body(self, data, body_size):
+        assert self.is_ready is True
+
+        def aes(data=''):
+            return self.aes_dec.update(data)
+
+        def mac(data=''):
+            self.ingress_mac.update(data)
+            return self.ingress_mac.digest()
 
         # frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
-        body_size = struct.unpack('>I', '\x00' + header[:3])[0]
-        assert body_size <= len(data) - 32
-        read_size = body_size
-        if read_size % 16:
-            read_size += 16 - read_size % 16
+        # frame relates to body w/o padding w/o mac
+
+        read_size = ceil16(body_size)
+        if not len(data) >= read_size + 16:
+            raise InsufficientCipherTextLengthError
 
         # FIXME check frame length in header
         # assume datalen == framelen for now
-        frame_ciphertext = data[32:32 + read_size]
-        frame_mac = data[32 + read_size:32 + read_size + 16]
+        frame_ciphertext = data[:read_size]
+        frame_mac = data[read_size:read_size + 16]
         assert len(frame_mac) == 16
 
         # ingres-mac.update(aes(mac-secret,ingres-mac) ^
@@ -186,9 +197,14 @@ class RLPxSession(object):
         fmac_seed = mac(frame_ciphertext)
         expected_frame_mac = mac(sxor(self.mac_enc(mac()[:16]), fmac_seed[:16]))[:16]
         assert frame_mac == expected_frame_mac
+        return aes(frame_ciphertext)[:body_size]
 
-        frame = aes(frame_ciphertext)[:body_size]
-        return dict(header=header, frame=frame, bytes_read=32 + read_size + 16)
+    def decrypt(self, data):
+        header = self.decrypt_header(data[:32])
+        body_size = struct.unpack('>I', '\x00' + header[:3])[0]
+        assert len(data) >= 32 + ceil16(body_size) + 16
+        frame = self.decrypt_body(data[32:], body_size)
+        return dict(header=header, frame=frame, bytes_read=32 + ceil16(len(frame)) + 16)
 
     def create_auth_message(self, remote_pubkey, token=None, ephemeral_privkey=None, nonce=None):
         """
