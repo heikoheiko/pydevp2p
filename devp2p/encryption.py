@@ -82,6 +82,16 @@ class RemoteNode(object):
         self.token = None
 
 
+class InsufficientCipherTextLengthError(Exception):
+
+    "impossible to recover from this. ciphers need to be dropped"
+    pass
+
+
+def ceil16(x):
+    return x if x % 16 == 0 else x + 16 - (x % 16)
+
+
 class RLPxSession(object):
 
     ephemeral_ecc = None
@@ -106,9 +116,6 @@ class RLPxSession(object):
         self.ecc = ecc
         self.is_initiator = is_initiator
         self.ephemeral_ecc = ECCx(raw_privkey=ephemeral_privkey)
-
-    def __repr__(self):
-        return '<RLPxSession (%s)>' % self.address.encode('hex')
 
     def encrypt(self, header, frame):
         """

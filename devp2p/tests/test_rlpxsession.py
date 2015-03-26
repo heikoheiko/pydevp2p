@@ -1,5 +1,5 @@
 
-from devp2p.encryption import RLPxSession
+from devp2p.encryption import RLPxSession, InsufficientCipherTextLengthError
 from devp2p.crypto import mk_privkey, ECCx, sha3
 import struct
 
@@ -113,3 +113,14 @@ def test_body_length():
     assert r['header'] == msg_header
     assert r['frame'] == msg_frame
     assert r['bytes_read'] == len(msg_ct)
+
+    # test data underflow
+    data = initiator.encrypt(msg_header, msg_frame_padded)
+    header = responder.decrypt_header(data[:32])
+    body_size = struct.unpack('>I', '\x00' + header[:3])[0]
+    exception_raised = False
+    try:
+        responder.decrypt_body(data[32:-1], body_size)
+    except InsufficientCipherTextLengthError:
+        exception_raised = True
+    assert exception_raised
