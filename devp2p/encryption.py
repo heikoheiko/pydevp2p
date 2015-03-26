@@ -116,6 +116,8 @@ class RLPxSession(object):
         # https://github.com/ethereum/cpp-ethereum/blob/develop/libp2p/RLPxFrameIO.cpp
         """
         assert self.is_ready is True
+        assert len(header) == 16
+        assert len(frame) % 16 == 0
 
         def aes(data=''):
             return self.aes_enc.update(data)
@@ -125,17 +127,12 @@ class RLPxSession(object):
             return self.egress_mac.digest()
 
         # header
-        assert len(header) == 16  # zero padded to 16 bytes
         header_ciphertext = aes(header)
         assert len(header_ciphertext) == 16
         # egress-mac.update(aes(mac-secret,egress-mac) ^ header-ciphertext).digest
         header_mac = mac(sxor(self.mac_enc(mac()[:16]), header_ciphertext))[:16]
 
         # frame
-
-        if len(frame) % 16:  # padding
-            frame += '\x00' * (16 - len(frame) % 16)
-
         frame_ciphertext = aes(frame)
         assert len(frame_ciphertext) == len(frame)
         # egress-mac.update(aes(mac-secret,egress-mac) ^
@@ -164,19 +161,17 @@ class RLPxSession(object):
         assert expected_header_mac == header_mac
         header = aes(header_ciphertext)
 
-        frame_size = struct.unpack('>I', '\x00' + header[:3])[0]
-        assert frame_size <= len(data) - 32
-        read_size = frame_size
+        # frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
+        body_size = struct.unpack('>I', '\x00' + header[:3])[0]
+        assert body_size <= len(data) - 32
+        read_size = body_size
         if read_size % 16:
             read_size += 16 - read_size % 16
-        assert read_size == len(data) - 32 - 16
 
         # FIXME check frame length in header
         # assume datalen == framelen for now
-        frame_ciphertext = data[32:-16]
-        assert frame_ciphertext == data[32:32 + read_size]
-        frame_mac = data[-16:]
-        assert frame_mac == data[32 + read_size:]
+        frame_ciphertext = data[32:32 + read_size]
+        frame_mac = data[32 + read_size:32 + read_size + 16]
         assert len(frame_mac) == 16
 
         # ingres-mac.update(aes(mac-secret,ingres-mac) ^
@@ -185,8 +180,8 @@ class RLPxSession(object):
         expected_frame_mac = mac(sxor(self.mac_enc(mac()[:16]), fmac_seed[:16]))[:16]
         assert frame_mac == expected_frame_mac
 
-        frame = aes(frame_ciphertext)[:frame_size]
-        return dict(header=header, frame=frame)
+        frame = aes(frame_ciphertext)[:body_size]
+        return dict(header=header, frame=frame, bytes_read=32 + read_size + 16)
 
     def create_auth_message(self, remote_pubkey, token=None, ephemeral_privkey=None, nonce=None):
         """

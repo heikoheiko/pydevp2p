@@ -69,12 +69,20 @@ def test_aes_enc():
     assert d == msg
 
 
+def rzpad16(data):
+    if len(data) % 16:
+        data += '\x00' * (16 - len(data) % 16)
+    return data
+
+
 def test_encryption():
     initiator, responder = test_session()
     for i in range(5):
         msg_frame = sha3(str(i) + 'f') * i + 'notpadded'
-        msg_header = struct.pack('>I', len(msg_frame))[1:] + sha3(str(i))[:16 - 3]
-        msg_ct = initiator.encrypt(msg_header, msg_frame)
+        msg_frame_padded = rzpad16(msg_frame)
+        frame_size = len(msg_frame)
+        msg_header = struct.pack('>I', frame_size)[1:] + sha3(str(i))[:16 - 3]
+        msg_ct = initiator.encrypt(msg_header, msg_frame_padded)
         r = responder.decrypt(msg_ct)
         assert r['header'] == msg_header
         assert r['frame'] == msg_frame
@@ -86,3 +94,22 @@ def test_encryption():
         r = initiator.decrypt(msg_ct)
         assert r['header'] == msg_header
         assert r['frame'] == msg_frame
+
+
+def test_body_length():
+    initiator, responder = test_session()
+    msg_frame = sha3('test') + 'notpadded'
+    msg_frame_padded = rzpad16(msg_frame)
+    frame_size = len(msg_frame)
+    msg_header = struct.pack('>I', frame_size)[1:] + sha3('x')[:16 - 3]
+    msg_ct = initiator.encrypt(msg_header, msg_frame_padded)
+    r = responder.decrypt(msg_ct)
+    assert r['header'] == msg_header
+    assert r['frame'] == msg_frame
+
+    # test excess data
+    msg_ct2 = initiator.encrypt(msg_header, msg_frame_padded)
+    r = responder.decrypt(msg_ct2 + 'excess data')
+    assert r['header'] == msg_header
+    assert r['frame'] == msg_frame
+    assert r['bytes_read'] == len(msg_ct)
