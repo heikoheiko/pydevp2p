@@ -2,7 +2,7 @@
 # https://github.com/ethereum/cpp-ethereum/blob/develop/test/rlpx.cpp#L183
 # https://gist.github.com/fjl/6dd7f51f1bf226488e00
 
-from devp2p.encryption import RLPxSession
+from devp2p.rlpxcipher import RLPxSession
 from devp2p.crypto import ECCx, privtopub
 test_values = \
     {
@@ -86,7 +86,6 @@ def test_handshake():
 
     # test auth_msg plain
     auth_msg = initiator.create_auth_message(remote_pubkey=responder_pubkey,
-                                             token=None,
                                              ephemeral_privkey=tv[
                                                  'initiator_ephemeral_private_key'],
                                              nonce=tv['initiator_nonce'])
@@ -141,5 +140,41 @@ def test_handshake():
     assert responder.egress_mac.digest() == tv['initial_ingress_MAC']
 
     r = responder.decrypt(tv['initiator_hello_packet'])
-    print repr(r['header'])
-    print repr(r['frame'])
+
+    # unpack hello packet
+    import struct
+    import rlp
+    import rlp.sedes as sedes
+    from rlp.codec import consume_item
+
+    header = r['header']
+    frame_length = struct.unpack('>I', '\x00' + header[:3])[0]
+
+    header_sedes = sedes.List([sedes.big_endian_int, sedes.big_endian_int])
+    header_data = rlp.decode(header[3:], strict=False, sedes=header_sedes)
+    print 'header', repr(header_data)
+
+    # frame
+    frame = r['frame']
+
+    # normal: rlp(packet-type) [|| rlp(packet-data)] || padding
+    packet_type, end = consume_item(frame, start=0)
+    packet_type = rlp.decode(frame, sedes=sedes.big_endian_int, strict=False)
+    print 'packet_type', repr(packet_type)
+
+    # decode hello body
+    max_protocols = 64
+    _sedes_capabilites_tuple = sedes.List([sedes.binary, sedes.big_endian_int])
+
+    structure = [
+        ('version', sedes.big_endian_int),
+        ('client_version', sedes.big_endian_int),
+        ('capabilities', sedes.List([_sedes_capabilites_tuple] * max_protocols, strict=False)),
+        ('listen_port', sedes.big_endian_int),
+        ('nodeid', sedes.binary)
+    ]
+
+    hello_sedes = sedes.List([x[1] for x in structure])
+    frame_data = rlp.decode(frame[end:], sedes=hello_sedes)
+    frame_data = dict((structure[i][0], x) for i, x in enumerate(frame_data))
+    print 'frame', frame_data
