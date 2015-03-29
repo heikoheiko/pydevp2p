@@ -7,7 +7,7 @@ from devp2p.protocol import P2PProtocol
 
 
 class PeerMock(object):
-    config = dict(p2p=dict(listen_port=3000, nodeid='\x00' * 64), version=1)
+    config = dict(p2p=dict(listen_port=3000, nodeid='\x00' * 64), client_version=1)
     capabilities = [('p2p', 2), ('eth', 57)]
     send_packet = stop = receive_hello = lambda x: None
 

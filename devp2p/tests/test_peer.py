@@ -1,5 +1,4 @@
 from devp2p import peermanager
-from devp2p import peer
 from devp2p import crypto
 from devp2p.app import BaseApp
 import gevent
