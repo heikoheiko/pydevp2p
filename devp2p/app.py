@@ -10,11 +10,25 @@ class BaseApp(object):
     def __init__(self, config):
         self.config = config
         self.services = IterableUserDict()
+        self.prepare_config()
+
+    def prepare_config(self):
+        def _with_dict(d):
+            "recursively look for and decode hex encoded data"
+            for k, v in d.items():
+                if k.endswith('_hex'):
+                    d[k[:-len('_hex')]] = v.decode('hex')
+                if isinstance(v, dict):
+                    _with_dict(v)
+        _with_dict(self.config)
+        _c = self.config['p2p']
+        if 'nodeid' not in _c and 'privkey' in _c:
+            _c['nodeid'] = crypto.privtopub(_c['privkey'])
 
     def register_service(self, service):
         """
-        registeres protocol with peer, which will be accessible as
-        peer.<protocol.name> (e.g. peer.p2p or peer.eth)
+        registeres protocol with app, which will be accessible as
+        app.services.<protocol.name> (e.g. app.services.p2p or app.services.eth)
         """
         assert isinstance(service, BaseService)
         assert service.name not in self.services
