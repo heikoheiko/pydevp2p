@@ -52,6 +52,7 @@ class ECCx(pyelliptic.ECC):
     """
     ecies_ciphername = 'aes-128-ctr'
     curve = 'secp256k1'
+    ecies_encrypt_overhead_length = 113
 
     def __init__(self, raw_pubkey=None, raw_privkey=None):
         if raw_privkey:
@@ -161,6 +162,7 @@ class ECCx(pyelliptic.ECC):
         msg += tag
 
         assert len(msg) == 1 + 64 + 16 + 32 + len(data) == 113 + len(data)
+        assert len(msg) - cls.ecies_encrypt_overhead_length == len(data)
         return msg
 
     def ecies_decrypt(self, data):
