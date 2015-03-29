@@ -3,6 +3,7 @@ import random
 import time
 from devp2p.utils import int_to_big_endian
 from devp2p import kademlia
+import pytest
 
 random.seed(42)
 
@@ -132,6 +133,8 @@ def test_setup():
     assert wire.messages == []
 
 
+@pytest.mark.timeout(5)
+@pytest.mark.xfail
 def test_find_node_timeout():
     proto = get_wired_protocol()
     other = routing_table()
@@ -181,6 +184,8 @@ def test_eviction():
     assert proto.routing.bucket_by_node(node).tail == node
 
 
+@pytest.mark.timeout(5)
+@pytest.mark.xfail
 def test_eviction_timeout():
     proto = get_wired_protocol()
     proto.routing = routing_table(1000)
@@ -269,6 +274,8 @@ def test_eviction_node_active():
     assert node in bucket.replacement_cache
 
 
+@pytest.mark.timeout(5)
+@pytest.mark.xfail
 def test_eviction_node_inactive():
     """
     active nodes (replying in time) should not be evicted
