@@ -2,7 +2,9 @@ from gevent.queue import Queue
 from collections import OrderedDict
 import rlp
 import struct
+import sys
 
+sys.setrecursionlimit(10000)  # frames are generated recursively
 
 # chunked-0: rlp.list(protocol-type, sequence-id, total-packet-size)
 header_data_sedes = rlp.sedes.List([rlp.sedes.big_endian_int] * 3, strict=False)
