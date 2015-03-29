@@ -1,50 +1,26 @@
+import time
 import gevent
 from collections import OrderedDict
-from protocol import BaseProtocol
-from protocol import decode_packet_header, header_length
+from protocol import BaseProtocol, P2PProtocol
+import multiplexer
+from muxsession import MultiplexedSession
 import slogging
 
 log = slogging.get_logger('peer')
 
 
-class QueueWorker(gevent.Greenlet):
-    # FIXME we need to queue send messages
-    def __init__(self, queue):
-        self.queue = queue
-        super(QueueWorker, self).__init__()
-
-    def _run(self):
-        self.running = True
-        while self.running:
-            msg = self.queue.get()    # block call
-            print('queue:', msg)
-
-
 class Peer(gevent.Greenlet):
-    """
-    After creation:
-        register peer protocol
-        send hello & encryption
-        receive hello & derive session key
-        register in common protocols
 
-        receive data
-            decrypt, check auth
-            decode packet id
-            lookup handling protocol
-            pass packet to protocol
-
-        send packet
-            encrypt
-    """
-
-    def __init__(self, peermanager, connection):
+    def __init__(self, peermanager, connection, remote_pubkey=False):
         super(Peer, self).__init__()
         log.debug('peer init', peer=self)
         self.peermanager = peermanager
+        self.config = peermanager.config
         self.connection = connection
+        privkey = self.config['p2p']['privkey']
+        self.mux = MultiplexedSession(privkey, token_by_pubkey=dict(), remote_pubkey=remote_pubkey)
         self.protocols = OrderedDict()
-        self._buffer = ''
+
         # learned and set on handshake
         self.nodeid = None
         self.client_version = None
@@ -57,71 +33,104 @@ class Peer(gevent.Greenlet):
     def ip_port(self):
         return self.connection.getpeername()
 
-    # protocols
+    # protocols (distinguish between available and active protocols)
     def register_protocol(self, protocol):
-        """
-        registeres protocol with peer, which will be accessible as
-        peer.<protocol.name> (e.g. peer.p2p or peer.eth)
-        """
         assert isinstance(protocol, BaseProtocol)
         assert protocol.name not in self.protocols
         log.debug('registering protocol', protocol=protocol.name, peer=self)
         self.protocols[protocol.name] = protocol
-        setattr(self.protocols, protocol.name, protocol)
 
     def deregister_protocol(self, protocol):
         assert isinstance(protocol, BaseProtocol)
         del self.protocols[protocol.name]
-        delattr(self.protocols, protocol.name)
-
-    def protocol_by_cmd_id(self, cmd_id):
-        max_id = 0
-        for p in self.protocols.values():
-            max_id += len(p.cmd_map)
-            if cmd_id < max_id:
-                return p
-        raise Exception('no protocol for id %s' % cmd_id)
 
     def has_protocol(self, name):
         assert isinstance(name, str)
-        return hasattr(self.protocol, name)
+        return name in self.protocols
 
-    # receiving p2p mesages
+    def receive_hello(self, version, client_version, capabilities, listen_port, nodeid):
+        for name, version in capabilities:
+            assert isinstance(name, str)
+            assert isinstance(version, int)
 
-    def _handle_packet(self, cmd_id, payload):
-        log.debug('handling packet', cmd_id=cmd_id, peer=self)
-        protocol = self.protocol_by_cmd_id(cmd_id)
-        protocol.handle_message(cmd_id, payload)
+    @property
+    def capabilities(self):
+        "used by protocol hello"   # FIXME, peermanager needs to know!
+        return [(p.name, p.version) for p in self.protocols]
 
-    def _data_received(self, data):
-        # use memoryview(string)[offset:] instead copying data
-        self._buffer += data
-        while len(self._buffer):
-            # read packets from buffer
-            payload_len, cmd_id = decode_packet_header(self._buffer)
-            # check if we have a complete message
-            if len(self._buffer) >= payload_len + header_length:
-                payload = self._buffer[header_length:payload_len + header_length]
-                self._buffer = self._buffer[payload_len + header_length:]
-                self._handle_packet(cmd_id, payload)
-            else:
+    # sending p2p messages
+
+    def send_packet(self, packet):
+        # rewrite cmd id / future FIXME  to packet.protocol_id
+        for i, protocol in enumerate(self.protocols.values()):
+            if packet.protocol_id > i:
+                packet.cmd_id += len(protocol.cmd_map)
+        packet.protocol_id = 0
+        # done rewrite
+        self.mux.add_packet(packet)
+
+    # receiving p2p messages
+
+    def _handle_packet(self, packet):
+        assert isinstance(packet, multiplexer.Packet)
+        log.debug('handling packet', cmd_id=packet.cmd_id, peer=self)
+        # packet.protocol_id not yet used. old adaptive cmd_ids instead
+        # future FIXME  to packet.protocol_id
+
+        # get protocol and protocol.cmd_id from packet.cmd_id
+        max_id = 0
+        found = False
+        for protocol in self.protocols.values():
+            if packet.cmd_id < max_id + len(protocol.cmd_map):
+                found = True
+                packet.cmd_id -= max_id  # rewrite cmd_id
                 break
+            max_id += len(protocol.cmd_map)
+        if not found:
+            raise Exception('no protocol for id %s' % packet.cmd_id)
+        # done get protocol
+        protocol.receive_packet(packet)
 
     def send(self, data):
-        log.debug('send', size=len(data))
-        self.connection.sendall(data)
-        log.debug('send sent', size=len(data))
+        if data:
+            log.debug('send', size=len(data))
+            self.connection.sendall(data)  # check if gevent chunkes and switchs contexts
+            log.debug('send sent', size=len(data))
 
     def _run(self):
+        """
+        Loop through queues
+
+        fixme: option to wait for any finished event
+             gevent.wait(objects=None, timeout=None, count=None)¶
+             and wrap connection.wait_ready in an event
+
+        mux.evt
+        and spawn a wait_read which triggers an event
+
+        """
+        default_timeout = 0.01
         while True:
-            log.debug('loop_socket.wait', peer=self)
-            data = self.connection.recv(4096)
-            log.debug('loop_socket.received', size=len(data), peer=self)
-            if not data:
-                log.debug('loop_socket.not_data', peer=self)
-                self.stop()
-                break
-            self._data_received(data)
+            # read egress data from the multiplexer queue
+            emsg = self.mux.get_message()
+            if emsg:
+                self.send(emsg)
+                timeout = 0
+            else:
+                timeout = default_timeout
+            try:
+                self.connection.wait_read(timeout=timeout)
+                imsg = self.connection.recv(4096)
+                if not imsg:
+                    log.debug('loop_socket.not_data', peer=self)
+                    self.stop()
+                    break
+                self.mux.add_message(imsg)
+            except gevent.timeout:
+                pass
+            packet = self.mux.get_packet()
+            if packet:
+                self._handle_packet(packet)
 
     def stop(self):
         log.debug('stopped', thread=gevent.getcurrent())
