@@ -18,78 +18,24 @@ def sxor(s1, s2):
     return ''.join(chr(ord(a) ^ ord(b)) for a, b in zip(s1, s2))
 
 
-class Transport(object):
-
-    def __init__(self, sender, receiver):
-        assert isinstance(sender, Peer)
-        assert isinstance(receiver, Peer)
-        self.sender = sender
-        self.receiver = receiver
-
-    def send(self, data):
-        self.receiver.receive(data)
-
-    def receive(self, data):
-        self.sender.receive(data)
+def ceil16(x):
+    return x if x % 16 == 0 else x + 16 - (x % 16)
 
 
-class Peer(object):
-
-    "Peer carries the session with a connected remote node"
-
-    def __init__(self, local_node, transport=None, receive_cb=None):
-        self.local_node = local_node
-        self.transport = transport
-        self.session = None
-        self.receive_cb = receive_cb
-
-    def connect(self, remote_node):
-        self.session = RLPxSession(self)
-        self.session.send_authentication(remote_node)
-
-    def send(self, data):
-        assert self.session
-        assert self.transport
-        self.transport.send(self.session.encode(data))
-
-    def receive(self, data):
-        if not self.session:
-            self.session = RLPxSession(self)
-            self.session.respond_authentication(data)
-        else:
-            data = self.session.decode(data)
-        if self.receive_cb:
-            self.receive_cb(self, data)
-
-
-class LocalNode(object):
-
-    def __init__(self, privkey):
-        self.ecc = ECCx(raw_privkey=privkey)
-
-    @property
-    def pubkey(self):
-        return self.ecc.pubkey_x + self.ecc.pubkey_y
-
-    def sign(self, data):
-        return self.ecc.sign(data)
-
-
-class RemoteNode(object):
-
-    def __init__(self, pubkey):
-        self.pubkey = pubkey
-        self.token = None
-
-
-class InsufficientCipherTextLengthError(Exception):
-
-    "impossible to recover from this. ciphers need to be dropped"
+class RLPxSessionError(Exception):
     pass
 
 
-def ceil16(x):
-    return x if x % 16 == 0 else x + 16 - (x % 16)
+class AuthenticationError(RLPxSessionError):
+    pass
+
+
+class InvalidKeyError(RLPxSessionError):
+    pass
+
+
+class FormatError(RLPxSessionError):
+    pass
 
 
 class RLPxSession(object):
@@ -111,6 +57,10 @@ class RLPxSession(object):
     is_ready = False
     remote_token_found = False
     remote_pubkey = None
+    auth_message_length = 194
+    auth_message_ct_length = auth_message_length + ECCx.ecies_encrypt_overhead_length
+    auth_ack_message_length = 97
+    auth_ack_message_ct_length = auth_ack_message_length + ECCx.ecies_encrypt_overhead_length
 
     def __init__(self, ecc, is_initiator=False, ephemeral_privkey=None):
         self.ecc = ecc
@@ -163,10 +113,13 @@ class RLPxSession(object):
         header_ciphertext = data[:16]
         header_mac = data[16:32]
 
+        # FIXME: how to restore mac if i received invalid data?
+
         # ingress-mac.update(aes(mac-secret,ingress-mac) ^ header-ciphertext).digest
         expected_header_mac = mac(sxor(self.mac_enc(mac()[:16]), header_ciphertext))[:16]
         # expected_header_mac = self.updateMAC(self.ingress_mac, header_ciphertext)
-        assert expected_header_mac == header_mac
+        if not expected_header_mac == header_mac:
+            raise AuthenticationError('invalid header mac')
         return aes(header_ciphertext)
 
     def decrypt_body(self, data, body_size):
@@ -184,7 +137,7 @@ class RLPxSession(object):
 
         read_size = ceil16(body_size)
         if not len(data) >= read_size + 16:
-            raise InsufficientCipherTextLengthError
+            raise FormatError('insufficient body length')
 
         # FIXME check frame length in header
         # assume datalen == framelen for now
@@ -196,13 +149,15 @@ class RLPxSession(object):
         # left128(ingres-mac.update(frame-ciphertext).digest))
         fmac_seed = mac(frame_ciphertext)
         expected_frame_mac = mac(sxor(self.mac_enc(mac()[:16]), fmac_seed[:16]))[:16]
-        assert frame_mac == expected_frame_mac
+        if not frame_mac == expected_frame_mac:
+            raise AuthenticationError('invalid frame mac')
         return aes(frame_ciphertext)[:body_size]
 
     def decrypt(self, data):
         header = self.decrypt_header(data[:32])
         body_size = struct.unpack('>I', '\x00' + header[:3])[0]
-        assert len(data) >= 32 + ceil16(body_size) + 16
+        if not len(data) >= 32 + ceil16(body_size) + 16:
+            raise FormatError('insufficient body length')
         frame = self.decrypt_body(data[32:], body_size)
         return dict(header=header, frame=frame, bytes_read=32 + ceil16(len(frame)) + 16)
 
@@ -221,7 +176,8 @@ class RLPxSession(object):
             S(ephemeral-privk, token ^ nonce) || H(ephemeral-pubk) || pubk || nonce || 0x1)
         """
         assert self.is_initiator
-        assert self.ecc.is_valid_key(remote_pubkey)
+        if not self.ecc.is_valid_key(remote_pubkey):
+            raise InvalidKeyError('invalid remote pubkey')
         self.remote_pubkey = remote_pubkey
 
         if not token:  # new
@@ -238,8 +194,10 @@ class RLPxSession(object):
         assert len(token_xor_nonce) == 32
 
         ephemeral_pubkey = self.ephemeral_ecc.raw_pubkey
-        assert self.ecc.is_valid_key(ephemeral_pubkey)
         assert len(ephemeral_pubkey) == 512 / 8
+        if not self.ecc.is_valid_key(ephemeral_pubkey):
+            raise InvalidKeyError('invalid ephemeral pubkey')
+
         # S(ephemeral-privk, ecdh-shared-secret ^ nonce)
         S = self.ephemeral_ecc.sign(token_xor_nonce)
         assert len(S) == 65
@@ -250,14 +208,18 @@ class RLPxSession(object):
         assert len(auth_message) == 65 + 32 + 64 + 32 + 1 == 194
         return auth_message
 
-    def encrypt_auth_message(self, auth_message, remote_pubkey):
+    def encrypt_auth_message(self, auth_message, remote_pubkey=None):
         assert self.is_initiator
+        remote_pubkey = remote_pubkey or self.remote_pubkey
         self.auth_init = self.ecc.ecies_encrypt(auth_message, remote_pubkey)
+        assert len(self.auth_init) == self.auth_message_ct_length
         return self.auth_init
 
-    def encrypt_auth_ack_message(self, auth_message, remote_pubkey):
+    def encrypt_auth_ack_message(self, auth_message, remote_pubkey=None):
         assert not self.is_initiator
+        remote_pubkey = remote_pubkey or self.remote_pubkey
         self.auth_ack = self.ecc.ecies_encrypt(auth_message, remote_pubkey)
+        assert len(self.auth_ack) == self.auth_ack_message_ct_length
         return self.auth_ack
 
     def send_authentication(self, remote_node, ephermal_privkey=None):
@@ -283,11 +245,12 @@ class RLPxSession(object):
         self.auth_init = ciphertext
         auth_message = self.ecc.ecies_decrypt(ciphertext)
         # S || H(ephemeral-pubk) || pubk || nonce || 0x[0|1]
-        assert len(auth_message) == 65 + 32 + 64 + 32 + 1 == 194
+        assert len(auth_message) == 65 + 32 + 64 + 32 + 1 == 194 == self.auth_message_length
         signature = auth_message[:65]
         H_initiator_ephemeral_pubkey = auth_message[65:65 + 32]
         initiator_pubkey = auth_message[65 + 32:65 + 32 + 64]
-        assert self.ecc.is_valid_key(initiator_pubkey)
+        if not self.ecc.is_valid_key(initiator_pubkey):
+            raise InvalidKeyError('invalid initiator pubkey')
         self.remote_pubkey = initiator_pubkey
         self.initiator_nonce = auth_message[65 + 32 + 64:65 + 32 + 64 + 32]
         known_flag = bool(ord(auth_message[65 + 32 + 64 + 32:]))
@@ -308,8 +271,10 @@ class RLPxSession(object):
 
         # recover initiator ephemeral pubkey
         self.remote_ephemeral_pubkey = ecdsa_recover(signed, signature)
-        assert self.ecc.is_valid_key(self.remote_ephemeral_pubkey)
-        assert ecdsa_verify(self.remote_ephemeral_pubkey, signature, signed)
+        if not self.ecc.is_valid_key(self.remote_ephemeral_pubkey):
+            raise InvalidKeyError('invalid remote ephemeral pubkey')
+        if not ecdsa_verify(self.remote_ephemeral_pubkey, signature, signed):
+            raise AuthenticationError('could not verify signature')
 
         # checks that recovery of signature == H(ephemeral-pubk)
         assert H_initiator_ephemeral_pubkey == sha3(self.remote_ephemeral_pubkey)
@@ -327,7 +292,7 @@ class RLPxSession(object):
 
         flag = chr(1 if token_found else 0)
         msg = ephemeral_pubkey + self.responder_nonce + flag
-        assert len(msg) == 64 + 32 + 1 == 97
+        assert len(msg) == 64 + 32 + 1 == 97 == self.auth_ack_message_length
         return msg
 
     def decode_auth_ack_message(self, ciphertext):
@@ -336,7 +301,8 @@ class RLPxSession(object):
         auth_ack_message = self.ecc.ecies_decrypt(ciphertext)
         assert len(auth_ack_message) == 64 + 32 + 1
         self.remote_ephemeral_pubkey = auth_ack_message[:64]
-        assert self.ecc.is_valid_key(self.remote_ephemeral_pubkey)
+        if not self.ecc.is_valid_key(self.remote_ephemeral_pubkey):
+            raise InvalidKeyError('invalid remote ephemeral pubkey')
         self.responder_nonce = auth_ack_message[64:64 + 32]
         self.remote_token_found = bool(ord(auth_ack_message[-1]))
 
@@ -347,7 +313,8 @@ class RLPxSession(object):
         assert self.auth_init
         assert self.auth_ack
         assert self.remote_ephemeral_pubkey
-        assert self.ecc.is_valid_key(self.remote_ephemeral_pubkey)
+        if not self.ecc.is_valid_key(self.remote_ephemeral_pubkey):
+            raise InvalidKeyError('invalid remote ephemeral pubkey')
 
         # derive base secrets from ephemeral key agreement
         # ecdhe-shared-secret = ecdh.agree(ephemeral-privkey, remote-ephemeral-pubk)
