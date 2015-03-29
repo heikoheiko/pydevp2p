@@ -12,6 +12,9 @@ from setuptools.command.test import test as TestCommand
 
 class PyTest(TestCommand):
 
+    # problem w/ test_kademlia_protocol.py
+    # user_options = [('timeout=', '5', "timeout tests after 5 seconds")]
+
     def finalize_options(self):
         TestCommand.finalize_options(self)
         self.test_args = []

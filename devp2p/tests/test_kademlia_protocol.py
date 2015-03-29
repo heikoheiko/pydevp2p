@@ -4,6 +4,7 @@ import time
 from devp2p.utils import int_to_big_endian
 from devp2p import kademlia
 import pytest
+import gevent
 
 random.seed(42)
 
@@ -148,7 +149,7 @@ def test_find_node_timeout():
     assert wire.messages == []
 
     # do timeout
-    time.sleep(kademlia.k_request_timeout)
+    gevent.sleep(kademlia.k_request_timeout)
 
     # respond with neighbours
     closest = other.neighbours(msg[2])
@@ -198,7 +199,7 @@ def test_eviction_timeout():
     assert msg[0] == 'ping'
     assert wire.messages == []
 
-    time.sleep(kademlia.k_request_timeout)
+    gevent.sleep(kademlia.k_request_timeout)
     proto.recv_pong(node, msg[2])
     # expect no message and that is not there anymore
     assert wire.messages == []
@@ -325,7 +326,7 @@ def test_eviction_node_inactive():
     assert wire.messages == []
 
     # reply late
-    time.sleep(kademlia.k_request_timeout)
+    gevent.sleep(kademlia.k_request_timeout)
     proto.recv_pong(eviction_candidate, echo)
 
     # expect no other messages
