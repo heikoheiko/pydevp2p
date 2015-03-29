@@ -93,7 +93,7 @@ class Peer(gevent.Greenlet):
         max_id = 0
         found = False
         for protocol in self.protocols.values():
-            if packet.cmd_id < max_id + protocol.max_cmd_id:
+            if packet.cmd_id < max_id + protocol.max_cmd_id + 1:
                 found = True
                 packet.cmd_id -= max_id  # rewrite cmd_id
                 break
@@ -123,6 +123,10 @@ class Peer(gevent.Greenlet):
         """
         default_timeout = 0.01
         while True:
+            # handle decoded packets
+            while not self.mux.packet_queue.empty():
+                self._handle_packet(self.mux.get_packet())
+
             # read egress data from the multiplexer queue
             emsg = self.mux.get_message()
             if emsg:
@@ -131,21 +135,17 @@ class Peer(gevent.Greenlet):
             else:
                 timeout = default_timeout
             try:
-                try:
-                    gevent.socket.wait_read(self.connection.fileno(), timeout=timeout)
-                except gevent.socket.timeout:
-                    pass
+                #log.debug('polling data', peer=self, timeout=timeout)
+                gevent.socket.wait_read(self.connection.fileno(), timeout=timeout)
                 imsg = self.connection.recv(4096)
-                if not imsg:
-                    log.debug('loop_socket.not_data', peer=self)
-                    self.stop()
-                    break
+            except gevent.socket.timeout:
+                continue
+            if imsg:
                 self.mux.add_message(imsg)
-            except gevent.timeout:
-                pass
-            packet = self.mux.get_packet()
-            if packet:
-                self._handle_packet(packet)
+            else:
+                log.debug('loop_socket.not_data', peer=self)
+                self.stop()
+                break
 
     def stop(self):
         log.debug('stopped', thread=gevent.getcurrent())
