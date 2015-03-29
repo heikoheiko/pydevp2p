@@ -159,7 +159,7 @@ class P2PProtocol(BaseProtocol):
         _sedes_capabilites_tuple = sedes.List([sedes.binary, sedes.big_endian_int])
         structure = [
             ('version', sedes.big_endian_int),
-            ('client_version', sedes.big_endian_int),
+            ('client_version', sedes.binary),
             ('capabilities', sedes.List([_sedes_capabilites_tuple] * max_protocols, strict=False)),
             ('listen_port', sedes.big_endian_int),
             ('nodeid', sedes.binary)

@@ -5,9 +5,8 @@ import gevent
 import copy
 
 
-def test_handshake():
-    a_config = dict(client_version=1,
-                    p2p=dict(listen_host='127.0.0.1', listen_port=3000,
+def get_connected_apps():
+    a_config = dict(p2p=dict(listen_host='127.0.0.1', listen_port=3000,
                              privkey_hex=crypto.sha3('a').encode('hex')))
     b_config = copy.deepcopy(a_config)
     b_config['p2p']['listen_port'] = 3001

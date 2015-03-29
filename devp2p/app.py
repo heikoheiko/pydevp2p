@@ -7,6 +7,8 @@ log = get_logger('app')
 
 class BaseApp(object):
 
+    client_version = 'pydevp2p 0.1.1'
+
     def __init__(self, config):
         self.config = config
         self.services = IterableUserDict()
@@ -24,6 +26,8 @@ class BaseApp(object):
         _c = self.config['p2p']
         if 'nodeid' not in _c and 'privkey' in _c:
             _c['nodeid'] = crypto.privtopub(_c['privkey'])
+        if 'client_version' not in self.config:
+            self.config['client_version'] = self.client_version
 
     def register_service(self, service):
         """
