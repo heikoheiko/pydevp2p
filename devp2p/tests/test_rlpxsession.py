@@ -1,5 +1,5 @@
 
-from devp2p.encryption import RLPxSession, InsufficientCipherTextLengthError
+from devp2p.rlpxcipher import RLPxSession, FormatError
 from devp2p.crypto import mk_privkey, ECCx, sha3
 from devp2p.multiplexer import Multiplexer, Packet
 import struct
@@ -138,6 +138,6 @@ def test_body_length():
     exception_raised = False
     try:
         responder.decrypt_body(data[32:-1], body_size)
-    except InsufficientCipherTextLengthError:
+    except FormatError:
         exception_raised = True
     assert exception_raised
