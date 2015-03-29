@@ -70,7 +70,8 @@ def test_callback():
     # setup callback
     r = []
 
-    def cb(data):
+    def cb(_proto, data):
+        assert _proto == proto
         r.append(data)
     proto.receive_pong_callbacks.append(cb)
 
