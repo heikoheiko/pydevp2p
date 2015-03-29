@@ -73,7 +73,8 @@ class MultiplexedSession(multiplexer.Multiplexer):
         assert isinstance(packet, multiplexer.Packet)
         assert self.is_ready  # don't send anything until handshake is finished
         multiplexer.Multiplexer.add_packet(self, packet)
-        self.message_queue.put(self.pop_all_frames_as_bytes())
+        for f in self.pop_all_frames():
+            self.message_queue.put(f.as_bytes())
 
     def get_packet(self):
         "gets a packet from the packet queue"
