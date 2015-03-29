@@ -3,13 +3,6 @@ from collections import OrderedDict
 import rlp
 import struct
 
-"""
-Questions:
-    total-packet-size == total_payload_size ???             : preliminary YES
-
-Improvements:
-    use memoryview
-"""
 
 # chunked-0: rlp.list(protocol-type, sequence-id, total-packet-size)
 header_data_sedes = rlp.sedes.List([rlp.sedes.big_endian_int] * 3, strict=False)
@@ -25,7 +18,15 @@ def rzpad16(data):
     return data
 
 
-class DeserializationError(Exception):
+class MultiplexerError(Exception):
+    pass
+
+
+class DeserializationError(MultiplexerError):
+    pass
+
+
+class FormatError(MultiplexerError):
     pass
 
 
