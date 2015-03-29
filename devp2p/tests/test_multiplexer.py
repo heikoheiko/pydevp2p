@@ -168,3 +168,26 @@ def test_multiplexer():
     assert len(mux._cached_decode_buffer) == len(tail)
 
 
+def test_rlpx_alpha():
+    """
+    protocol_id: 0
+    sequence_id: 0
+
+    Single-frame packet:
+    header || header-mac || frame || frame-mac
+
+    header: frame-size || header-data || padding
+
+    frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
+
+    header-data:
+        normal: rlp.list(protocol-type[, sequence-id])
+
+    values:
+        protocol-type: < 2**16
+        sequence-id: < 2**16 (this value is optional for normal frames)
+        total-packet-size: < 2**32
+
+    padding: zero-fill to 16-byte boundary
+    """
+    pass
