@@ -68,7 +68,12 @@ class BaseProtocol(gevent.Greenlet):
 
         @classmethod
         def decode_payload(cls, rlp_data):
-            data = rlp.decode(rlp_data, sedes=sedes.List([x[1] for x in cls.structure]))
+            try:
+                data = rlp.decode(rlp_data, sedes=sedes.List([x[1] for x in cls.structure]))
+                assert len(data) == len(cls.structure)
+            except (AssertionError, rlp.RLPException) as e:
+                print repr(rlp.decode(rlp_data))
+                raise e
             # convert to dict
             return dict((cls.structure[i][0], v) for i, v in enumerate(data))
 
@@ -129,9 +134,14 @@ class BaseProtocol(gevent.Greenlet):
 
 
 class P2PProtocol(BaseProtocol):
+
+    """
+    DEV P2P Wire Protocol
+    https://github.com/ethereum/wiki/wiki/%C3%90%CE%9EVp2p-Wire-Protocol
+    """
     protocol_id = 0
     name = 'p2p'
-    version = 2
+    version = 3
 
     def __init__(self, peer):
         # required by BaseProtocol
@@ -152,6 +162,7 @@ class P2PProtocol(BaseProtocol):
 
     class pong(BaseProtocol.command):
         cmd_id = 2
+        # structure = [('empty_list', rlp.sedes.List())]  # ???
 
     class hello(BaseProtocol.command):
         cmd_id = 0
@@ -194,13 +205,18 @@ class P2PProtocol(BaseProtocol):
         class reason(object):
             disconnect_requested = 0
             tcp_sub_system_error = 1
-            bad_protocol = 2
+            bad_protocol = 2         # e.g. a malformed message, bad RLP, incorrect magic number
             useless_peer = 3
             too_many_peers = 4
             already_connected = 5
-            wrong_genesis_block = 6
-            incompatible_network_protocols = 7
+            incompatibel_p2p_version = 6
+            null_node_identity_received = 7
             client_quitting = 8
+            unexpected_identity = 9  # i.e. a different identity to a previous connection or
+            #                          what a trusted peer told us
+            connected_to_self = 10
+            timeout = 11             # i.e. nothing received since sending last ping
+            other = 16               # Some other reason specific to a subprotocol
 
         def reason_name(self, id):
             return [k for k, v in self.reason.__dict__.items() if v == id][0]
@@ -208,7 +224,7 @@ class P2PProtocol(BaseProtocol):
         def create(self, proto, reason=reason.client_quitting):
             assert self.reason_name(reason)
             log.debug('send_disconnect', peer=proto.peer, reason=self.reason_name(reason))
-            proto.peer.stop()
+            # proto.peer.stop()  # FIXME
             return dict(reason=reason)
 
         def receive(self, proto, data):
