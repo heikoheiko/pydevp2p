@@ -46,14 +46,13 @@ class RLPxSession(object):
     responder_nonce = None
     auth_init = None
     auth_ack = None
-    token = None
     aes_secret = None
+    token = None
     aes_enc = None
     aes_dec = None
     mac_enc = None
     egress_mac = None
     ingress_mac = None
-    _authentication_sent = False
     is_ready = False
     remote_token_found = False
     remote_pubkey = None
@@ -62,9 +61,10 @@ class RLPxSession(object):
     auth_ack_message_length = 97
     auth_ack_message_ct_length = auth_ack_message_length + ECCx.ecies_encrypt_overhead_length
 
-    def __init__(self, ecc, is_initiator=False, ephemeral_privkey=None):
+    def __init__(self, ecc, is_initiator=False, token_by_pubkey=dict(), ephemeral_privkey=None):
         self.ecc = ecc
         self.is_initiator = is_initiator
+        self.token_by_pubkey = token_by_pubkey
         self.ephemeral_ecc = ECCx(raw_privkey=ephemeral_privkey)
 
     def encrypt(self, header, frame):
@@ -161,7 +161,7 @@ class RLPxSession(object):
         frame = self.decrypt_body(data[32:], body_size)
         return dict(header=header, frame=frame, bytes_read=32 + ceil16(len(frame)) + 16)
 
-    def create_auth_message(self, remote_pubkey, token=None, ephemeral_privkey=None, nonce=None):
+    def create_auth_message(self, remote_pubkey, ephemeral_privkey=None, nonce=None):
         """
         1. initiator generates ecdhe-random and nonce and creates auth
         2. initiator connects to remote and sends auth
@@ -180,6 +180,7 @@ class RLPxSession(object):
             raise InvalidKeyError('invalid remote pubkey')
         self.remote_pubkey = remote_pubkey
 
+        token = self.token_by_pubkey.get(remote_pubkey)
         if not token:  # new
             ecdh_shared_secret = self.ecc.get_ecdh_key(remote_pubkey)
             token = ecdh_shared_secret
@@ -222,16 +223,7 @@ class RLPxSession(object):
         assert len(self.auth_ack) == self.auth_ack_message_ct_length
         return self.auth_ack
 
-    def send_authentication(self, remote_node, ephermal_privkey=None):
-        auth_message = self.create_auth_message(remote_node, ephermal_privkey)
-        self.peer.send(auth_message)
-        self._authentication_sent = True
-
-    def receive_authentication(self, ciphertext):
-        assert not self.is_initiator
-        self.decode_authentication(ciphertext)
-
-    def decode_authentication(self, ciphertext, get_token_cb=None):
+    def decode_authentication(self, ciphertext):
         """
         3. optionally, remote decrypts and verifies auth
             (checks that recovery of signature == H(ephemeral-pubk))
@@ -258,16 +250,16 @@ class RLPxSession(object):
         # token or new ecdh_shared_secret
         if known_flag:
             self.remote_token_found = True
-            # hat todo if remote has token, but local forgot it?
-            token = get_token_cb(initiator_pubkey)
-            assert token
+            # what todo if remote has token, but local forgot it.
+            #   reply with token not found. FIXME!!!
+            token = self.token_by_pubkey.get(initiator_pubkey)
+            assert token  # FIXME continue session with ecdh_key and send flag in auth_ack
         else:
-            token = ecdh_shared_secret = self.ecc.get_ecdh_key(initiator_pubkey)  # ???
+            token = self.ecc.get_ecdh_key(initiator_pubkey)
 
         # verify auth
         # S(ephemeral-privk, ecdh-shared-secret ^ nonce)
-        ecdh_shared_secret = self.ecc.get_ecdh_key(initiator_pubkey)
-        signed = sxor(ecdh_shared_secret, self.initiator_nonce)
+        signed = sxor(token, self.initiator_nonce)
 
         # recover initiator ephemeral pubkey
         self.remote_ephemeral_pubkey = ecdsa_recover(signed, signature)
@@ -329,6 +321,7 @@ class RLPxSession(object):
 
         # token = sha3(shared-secret)
         self.token = sha3(shared_secret)
+        self.token_by_pubkey[self.remote_pubkey] = self.token
 
         # aes-secret = sha3(ecdhe-shared-secret || shared-secret)
         self.aes_secret = sha3(ecdhe_shared_secret + shared_secret)
