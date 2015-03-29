@@ -1,9 +1,10 @@
+import random
 import gevent
 import socket
 from gevent.server import StreamServer
 from gevent.socket import create_connection
 from service import BaseService
-from protocol import P2PProtocol
+from protocol import BaseProtocol
 from peer import Peer
 
 import slogging
@@ -20,19 +21,18 @@ class PeerManager(BaseService):
         keeps track of peer reputation
         saves/loads peers (rather discovery buckets) to disc
 
-
     connection strategy
-        while num peers > min_num_peers:
-                gen random id
-                resolve closest node address
-                connect closest node
-
-
-
+        for service which requires peers
+            while num peers > min_num_peers:
+                    gen random id
+                    resolve closest node address
+                    [ideally know their services]
+                    connect closest node
     """
     name = 'peermanager'
 
     def __init__(self, app):
+        self.config = app.config
         BaseService.__init__(self, app)
         log.info('PeerManager init')
         self.peers = []
@@ -40,26 +40,31 @@ class PeerManager(BaseService):
     def __repr__(self):
         return '<PeerManager>'
 
-    def on_hello_received(self, p2pprotocol, data):
-        log.debug('hello_reveived', peer=p2pprotocol.peer)
+    def on_hello_received(self, p2p_proto, data):
+        log.debug('hello_received', peer=p2p_proto.peer)
         # register more protocols
 
-    def _start_peer(self, connection, address, is_inititator=False):
+    def broadcast(self, method, num_peers=None, *args, **kargs):
+        assert issubclass(method.im_class, BaseProtocol)
+        assert num_peers is None or num_peers > 0
+        proto_name = method.im_class.name
+        peers_with_proto = [p for p in self.peers if proto_name in p.protocols]
+        num_peers = num_peers or len(peers_with_proto)
+        for p in random.sample(peers_with_proto, min(num_peers, len(peers_with_proto))):
+            method(p.protocols[proto_name], *args, **kargs)
+
+    def _start_peer(self, connection, address, remote_pubkey=None):
         log.debug('new connect', connection=connection)
         # create peer
-        peer = Peer(self, connection)
+        peer = Peer(self, connection, remote_pubkey=remote_pubkey)
         log.debug('created new peer', peer=peer)
-
-        # register p2p protocol
-        p2pprotocol = P2PProtocol(peer, cmd_offset=0, is_inititator=is_inititator)
-        peer.register_protocol(p2pprotocol)
         self.peers.append(peer)
 
         # loop
         peer.start()
         log.debug('peer started', peer=peer)
 
-    def connect(self, address):
+    def connect(self, address, remote_pubkey):
         log.debug('connecting', address=address)
         """
         gevent.socket.create_connection(address, timeout=Timeout, source_address=None)
@@ -68,11 +73,11 @@ class PeerManager(BaseService):
         getdefaulttimeout() is default
         """
         connection = create_connection(address)
-        self._start_peer(connection, address, is_inititator=True)
+        self._start_peer(connection, address, remote_pubkey)
 
     def _bootstrap(self):
-        host = self.app.config['p2p']['bootstrap_host']
-        port = self.app.config['p2p']['bootstrap_port']
+        host = self.config['p2p'].get('bootstrap_host')
+        port = self.config['p2p'].get('bootstrap_port')
         if host:
             log.info('connecting bootstrap server')
             try:
@@ -83,8 +88,8 @@ class PeerManager(BaseService):
     def start(self):
         log.info('starting peermanager')
         # start a listening server
-        ip = self.app.config['p2p']['listen_host']
-        port = self.app.config['p2p']['listen_port']
+        ip = self.config['p2p']['listen_host']
+        port = self.config['p2p']['listen_port']
         log.info('starting listener', host=ip, port=port)
         self.server = StreamServer((ip, port), handle=self._start_peer)
         self.server.start()

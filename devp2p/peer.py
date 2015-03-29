@@ -1,4 +1,3 @@
-import time
 import gevent
 from collections import OrderedDict
 from protocol import BaseProtocol, P2PProtocol
@@ -11,16 +10,27 @@ log = slogging.get_logger('peer')
 
 class Peer(gevent.Greenlet):
 
-    def __init__(self, peermanager, connection, remote_pubkey=False):
+    mux = None
+
+    def __init__(self, peermanager, connection, remote_pubkey=None):
         super(Peer, self).__init__()
-        log.debug('peer init', peer=self)
         self.peermanager = peermanager
-        self.config = peermanager.config
         self.connection = connection
-        privkey = self.config['p2p']['privkey']
-        self.mux = MultiplexedSession(privkey, token_by_pubkey=dict(), remote_pubkey=remote_pubkey)
+        self.config = peermanager.config
         self.protocols = OrderedDict()
 
+        log.debug('peer init', peer=self)
+
+        # create and register p2p protocol
+        p2p_proto = P2PProtocol(self)
+        self.register_protocol(p2p_proto)
+        hello_packet = p2p_proto.create_hello()
+
+        # create multiplexed encrypted session
+        privkey = self.config['p2p']['privkey']
+        self.mux = MultiplexedSession(privkey, hello_packet,
+                                      token_by_pubkey=dict(), remote_pubkey=remote_pubkey)
+        self.mux.add_protocol(p2p_proto.protocol_id)
         # learned and set on handshake
         self.nodeid = None
         self.client_version = None
@@ -39,6 +49,8 @@ class Peer(gevent.Greenlet):
         assert protocol.name not in self.protocols
         log.debug('registering protocol', protocol=protocol.name, peer=self)
         self.protocols[protocol.name] = protocol
+        if self.mux:
+            self.mux.add_protocol(protocol.protocol_id)
 
     def deregister_protocol(self, protocol):
         assert isinstance(protocol, BaseProtocol)
@@ -56,7 +68,7 @@ class Peer(gevent.Greenlet):
     @property
     def capabilities(self):
         "used by protocol hello"   # FIXME, peermanager needs to know!
-        return [(p.name, p.version) for p in self.protocols]
+        return [(p.name, p.version) for p in self.protocols.values()]
 
     # sending p2p messages
 
@@ -64,7 +76,7 @@ class Peer(gevent.Greenlet):
         # rewrite cmd id / future FIXME  to packet.protocol_id
         for i, protocol in enumerate(self.protocols.values()):
             if packet.protocol_id > i:
-                packet.cmd_id += len(protocol.cmd_map)
+                packet.cmd_id += protocol.max_cmd_id
         packet.protocol_id = 0
         # done rewrite
         self.mux.add_packet(packet)
@@ -81,11 +93,11 @@ class Peer(gevent.Greenlet):
         max_id = 0
         found = False
         for protocol in self.protocols.values():
-            if packet.cmd_id < max_id + len(protocol.cmd_map):
+            if packet.cmd_id < max_id + protocol.max_cmd_id:
                 found = True
                 packet.cmd_id -= max_id  # rewrite cmd_id
                 break
-            max_id += len(protocol.cmd_map)
+            max_id += protocol.max_cmd_id
         if not found:
             raise Exception('no protocol for id %s' % packet.cmd_id)
         # done get protocol
@@ -102,7 +114,7 @@ class Peer(gevent.Greenlet):
         Loop through queues
 
         fixme: option to wait for any finished event
-             gevent.wait(objects=None, timeout=None, count=None)¶
+             gevent.wait(objects=None, timeout=None, count=None)
              and wrap connection.wait_ready in an event
 
         mux.evt
@@ -119,7 +131,10 @@ class Peer(gevent.Greenlet):
             else:
                 timeout = default_timeout
             try:
-                self.connection.wait_read(timeout=timeout)
+                try:
+                    gevent.socket.wait_read(self.connection.fileno(), timeout=timeout)
+                except gevent.socket.timeout:
+                    pass
                 imsg = self.connection.recv(4096)
                 if not imsg:
                     log.debug('loop_socket.not_data', peer=self)
