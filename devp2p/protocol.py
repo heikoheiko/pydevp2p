@@ -1,4 +1,5 @@
 # https://github.com/ethereum/go-ethereum/wiki/Blockpool
+import gevent
 import rlp
 from rlp import sedes
 from multiplexer import Packet
@@ -6,7 +7,7 @@ import slogging
 log = slogging.get_logger('protocol.p2p')
 
 
-class BaseProtocol(object):
+class BaseProtocol(gevent.Greenlet):
 
     """
     A protocol is collection of commands.
@@ -116,11 +117,15 @@ class BaseProtocol(object):
             setattr(self, 'send_' + klass.__name__, send)
 
         self.cmd_by_id = dict((klass.cmd_id, klass.__name__) for klass in klasses)
+        self.max_cmd_id = max(self.cmd_by_id.keys())
 
     def receive_packet(self, packet):
         cmd_name = self.cmd_by_id[packet.cmd_id]
         cmd = getattr(self, '_receive_' + cmd_name)
         cmd(packet)
+
+    def stop(self):
+        pass
 
 
 class P2PProtocol(BaseProtocol):
@@ -133,7 +138,7 @@ class P2PProtocol(BaseProtocol):
         self._send_packet = peer.send_packet
         # required by P2PProtocol
         self.config = peer.config
-        assert peer.capabilities
+        assert hasattr(peer, 'capabilities')
         assert callable(peer.stop)
         assert callable(peer.receive_hello)
         self.peer = peer
@@ -162,7 +167,7 @@ class P2PProtocol(BaseProtocol):
 
         def create(self, proto):
             return dict(version=proto.version,
-                        client_version=proto.config['version'],
+                        client_version=proto.config['client_version'],
                         capabilities=proto.peer.capabilities,
                         listen_port=proto.config['p2p']['listen_port'],
                         nodeid=proto.config['p2p']['nodeid'],
