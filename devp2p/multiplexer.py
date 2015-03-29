@@ -169,7 +169,6 @@ class Frame(object):
             l.append(self.sequence_id)
         header_data = rlp.encode(l, sedes=header_data_sedes)
         assert l == rlp.decode(header_data, sedes=header_data_sedes, strict=False)
-        print 'header after encoding', repr(header_data), l
         # write body_size to header
         # frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
         # frame relates to body w/o padding w/o mac
@@ -444,18 +443,14 @@ class Multiplexer(object):
             header = buffer[:Frame.header_size]
             # frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
             # frame relates to body w/o padding w/o mac
-            print 'body_size', body_size
             body_offset = Frame.header_size + Frame.mac_size
-            print 'body_offset', body_offset
             body = buffer[body_offset:body_offset + body_size]
             assert len(body) == body_size
             bytes_read = ceil16(body_offset + body_size + Frame.mac_size)
-            print 'bytes_read', bytes_read
         assert bytes_read % Frame.padding == 0
 
         # normal, chunked-n: rlp.list(protocol-type[, sequence-id])
         # chunked-0: rlp.list(protocol-type, sequence-id, total-packet-size)
-        print 'header before decoding', repr(header[3:])
         try:
             header_data = rlp.decode(header[3:], sedes=header_data_sedes, strict=False)
         except rlp.RLPException:
@@ -480,12 +475,10 @@ class Multiplexer(object):
         else:
             sequence_id = None
 
-        print 'sequence_id', sequence_id, sequence_id in self.chunked_buffers
         # build packet
         if sequence_id in self.chunked_buffers:
             # body chunked-n: packet-data || padding
             packet = self.chunked_buffers.pop(sequence_id)
-            print 'adding %d bytes to packet.payload' % len(body)
             packet.payload += body
             if packet.total_payload_size == len(packet.payload):
                 del packet.total_payload_size
@@ -494,9 +487,7 @@ class Multiplexer(object):
         else:
             # body normal, chunked-0: rlp(packet-type) [|| rlp(packet-data)] || padding
             item, end = rlp.codec.consume_item(body, 0)
-            print 'end', end
             cmd_id = rlp.sedes.big_endian_int.deserialize(item)
-            print 'creating packet w/', len(body[end:])
             packet = Packet(protocol_id=protocol_id,
                             cmd_id=cmd_id,
                             payload=body[end:])
@@ -527,14 +518,10 @@ class Multiplexer(object):
         body_size = struct.unpack('>I', '\x00' + self._cached_decode_header[:3])[0]
         required_len = Frame.header_size + Frame.mac_size + ceil16(body_size) + Frame.mac_size
         if len(self._cached_decode_buffer) >= required_len:
-            print
-            print 'decoding', required_len, 'of', len(self._cached_decode_buffer)
             packet = self.decode_body(self._cached_decode_buffer, self._cached_decode_header)
             self._cached_decode_header = None
             self._cached_decode_buffer = self._cached_decode_buffer[required_len:]
-            print 'remaining', len(self._cached_decode_buffer)
             if packet:
-                print 'have packet'
                 return [packet] + self.decode()
             else:
                 return self.decode()
