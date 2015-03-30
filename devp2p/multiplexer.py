@@ -88,6 +88,7 @@ class Frame(object):
 
     def __init__(self, protocol_id, cmd_id, payload, sequence_id, window_size,
                  is_chunked_n=False, frames=None, frame_cipher=None):
+        payload = memoryview(payload)
         assert isinstance(window_size, int)
         assert window_size % self.padding == 0
         assert isinstance(cmd_id, int) and cmd_id < 256
@@ -197,10 +198,9 @@ class Frame(object):
         padding: zero-fill to 16-byte boundary (only necessary for last frame)
         """
         b = self.enc_cmd_id  # packet-type
-        b += self.payload
-        # padding
-        b = rzpad16(b)
-        return b
+        length = len(b) + len(self.payload)
+        assert isinstance(self.payload, memoryview)
+        return b + self.payload.tobytes() + '\x00' * (ceil16(length) - length)
 
     def get_frames(self):
         return self.frames
@@ -276,9 +276,9 @@ class Multiplexer(object):
 
     max_window_size = 8 * 1024
     max_priority_frame_size = 1024
+    max_payload_size = 10 * 1024**2
     frame_cipher = None
     _cached_decode_header = None
-    _cached_decode_buffer = ''
 
     def __init__(self, frame_cipher=None):
         if frame_cipher:
@@ -288,6 +288,7 @@ class Multiplexer(object):
         self.sequence_id = 0
         self.last_protocol = None  # last protocol, which sent data to the buffer
         self.chunked_buffers = dict()  # decode: next_expected_sequence_id > buffer
+        self._decode_buffer = bytearray()
 
     @property
     def num_active_protocols(self):
@@ -412,12 +413,14 @@ class Multiplexer(object):
         return ''.join(f.as_bytes() for f in self.pop_all_frames())
 
     def decode_header(self, buffer):
+        assert isinstance(buffer, memoryview)
         assert len(buffer) >= 32
         if self.frame_cipher:
-            header = self.frame_cipher.decrypt_header(buffer[:Frame.header_size + Frame.mac_size])
+            header = self.frame_cipher.decrypt_header(
+                buffer[:Frame.header_size + Frame.mac_size].tobytes())
         else:
             # header: frame-size || header-data || padding
-            header = buffer[:Frame.header_size]
+            header = buffer[:Frame.header_size].tobytes()
         return header
 
     def decode_body(self, buffer, header=None):
@@ -427,26 +430,27 @@ class Multiplexer(object):
 
         return None if buffer is not long enough to decode frame
         """
+        assert isinstance(buffer, memoryview)
         if len(buffer) < Frame.header_size:
             return None, buffer
 
         if not header:
-            header = self.decode_header(buffer[:Frame.header_size + Frame.mac_size])
+            header = self.decode_header(buffer[:Frame.header_size + Frame.mac_size].tobytes())
 
         body_size = struct.unpack('>I', '\x00' + header[:3])[0]
 
         if self.frame_cipher:
-            body = self.frame_cipher.decrypt_body(buffer[Frame.header_size + Frame.mac_size:],
+            body = self.frame_cipher.decrypt_body(buffer[Frame.header_size + Frame.mac_size:].tobytes(),
                                                   body_size)
             assert len(body) == body_size
             bytes_read = Frame.header_size + Frame.mac_size + ceil16(len(body)) + Frame.mac_size
         else:
             # header: frame-size || header-data || padding
-            header = buffer[:Frame.header_size]
+            header = buffer[:Frame.header_size].tobytes()
             # frame-size: 3-byte integer size of frame, big endian encoded (excludes padding)
             # frame relates to body w/o padding w/o mac
             body_offset = Frame.header_size + Frame.mac_size
-            body = buffer[body_offset:body_offset + body_size]
+            body = buffer[body_offset:body_offset + body_size].tobytes()
             assert len(body) == body_size
             bytes_read = ceil16(body_offset + body_size + Frame.mac_size)
         assert bytes_read % Frame.padding == 0
@@ -510,19 +514,20 @@ class Multiplexer(object):
 
     def decode(self, data=''):
         if data:
-            self._cached_decode_buffer += data
+            self._decode_buffer.extend(data)
         if not self._cached_decode_header:
-            if len(self._cached_decode_buffer) < Frame.header_size + Frame.mac_size:
+            if len(self._decode_buffer) < Frame.header_size + Frame.mac_size:
                 return []
             else:
-                self._cached_decode_header = self.decode_header(self._cached_decode_buffer)
+                self._cached_decode_header = self.decode_header(memoryview(self._decode_buffer))
+                assert isinstance(self._cached_decode_header, str)
 
         body_size = struct.unpack('>I', '\x00' + self._cached_decode_header[:3])[0]
         required_len = Frame.header_size + Frame.mac_size + ceil16(body_size) + Frame.mac_size
-        if len(self._cached_decode_buffer) >= required_len:
-            packet = self.decode_body(self._cached_decode_buffer, self._cached_decode_header)
+        if len(self._decode_buffer) >= required_len:
+            packet = self.decode_body(memoryview(self._decode_buffer), self._cached_decode_header)
             self._cached_decode_header = None
-            self._cached_decode_buffer = self._cached_decode_buffer[required_len:]
+            self._decode_buffer = self._decode_buffer[required_len:]
             if packet:
                 return [packet] + self.decode()
             else:

@@ -23,7 +23,7 @@ def test_frame():
     assert message[32 + len(f.enc_cmd_id):].startswith(packet0.payload)
 
     packets = mux.decode(message)
-    assert len(mux._cached_decode_buffer) == 0
+    assert len(mux._decode_buffer) == 0
     assert len(packets[0].payload) == len(packet0.payload)
     assert packets[0].payload == packet0.payload
     assert packets[0] == packet0
@@ -51,7 +51,41 @@ def test_chunked():
     message = mux.pop_all_frames_as_bytes()
     assert len(message) == all_frames_length
     packets = mux.decode(message)
-    assert len(mux._cached_decode_buffer) == 0
+    assert len(mux._decode_buffer) == 0
+    assert packets[0].payload == packet1.payload
+    assert packets[0] == packet1
+    assert len(packets) == 1
+
+
+def test_chunked_big():
+    import time
+    mux = Multiplexer()
+    p0 = 0
+    mux.add_protocol(p0)
+
+    # big packet
+    payload = '\x00' * 1 * 1024**2
+    print 'size', len(payload)
+    packet1 = Packet(p0, cmd_id=0, payload=payload)
+
+    # framing
+    st = time.time()
+    mux.add_packet(packet1)
+    print 'framing', time.time() - st
+
+    # popping frames
+    st = time.time()
+    messages = [f.as_bytes() for f in mux.pop_all_frames()]
+    print 'popping frames', time.time() - st
+
+    st = time.time()
+    # decoding
+    for m in messages:
+        packets = mux.decode(m)
+        if packets:
+            break
+    print 'decoding frames', time.time() - st
+    assert len(mux._decode_buffer) == 0
     assert packets[0].payload == packet1.payload
     assert packets[0] == packet1
     assert len(packets) == 1
@@ -73,7 +107,7 @@ def test_remain():
     packets = mux.decode(message)
     assert packets[0] == packet1
     assert len(packets) == 1
-    assert len(mux._cached_decode_buffer) == len(tail)
+    assert len(mux._decode_buffer) == len(tail)
 
     # test buffer decode with invalid data
     message = message[1:]
@@ -165,7 +199,7 @@ def test_multiplexer():
     packets = mux.decode(message)
     assert packets[0] == packet1
     assert len(packets) == 1
-    assert len(mux._cached_decode_buffer) == len(tail)
+    assert len(mux._decode_buffer) == len(tail)
 
 
 def test_rlpx_alpha():
