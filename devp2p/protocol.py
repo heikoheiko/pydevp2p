@@ -10,12 +10,13 @@ log = slogging.get_logger('protocol.p2p')
 class BaseProtocol(gevent.Greenlet):
 
     """
-    A protocol is collection of commands.
+    A protocol mediates between the network and the service.
+    It implements a collection of commands.
 
     For each command X the following methods are created at initialization:
     -    packet = protocol.create_X(*args, **kargs)
     -   protocol.send_X(*args, **kargs) is a shortcut for:
-            protocol._send_packet(protocol.create_X(*args, **kargs))
+            protocol.send_packet(protocol.create_X(*args, **kargs))
     - protocol._receive_X(data)
 
 
@@ -79,13 +80,14 @@ class BaseProtocol(gevent.Greenlet):
 
         # end command base ###################################################
 
-    _send_packet = lambda packet: None  # override in implementation
-
-    def __init__(self):
+    def __init__(self, peer):
+        "hint: implement peer started notifcation of associated protocol here"
+        assert callable(peer.send_packet)
+        self.peer = peer
         self._setup()
+        super(BaseProtocol, self).__init__()
 
     def _setup(self):
-        assert callable(self._send_packet)
 
         # collect commands
         klasses = [k for k in self.__class__.__dict__.values()
@@ -110,7 +112,7 @@ class BaseProtocol(gevent.Greenlet):
             def send(*args, **kargs):
                 "create and send packet"
                 packet = create(*args, **kargs)
-                self._send_packet(packet)
+                self.send_packet(packet)
 
             return receive, create, send, instance.receive_callbacks
 
@@ -129,7 +131,11 @@ class BaseProtocol(gevent.Greenlet):
         cmd = getattr(self, '_receive_' + cmd_name)
         cmd(packet)
 
+    def send_packet(self, packet):
+        self.peer.send_packet(packet)
+
     def stop(self):
+        "hint: implement peer stopped notifcation of associated protocol here"
         pass
 
 
@@ -144,15 +150,12 @@ class P2PProtocol(BaseProtocol):
     version = 3
 
     def __init__(self, peer):
-        # required by BaseProtocol
-        self._send_packet = peer.send_packet
         # required by P2PProtocol
         self.config = peer.config
         assert hasattr(peer, 'capabilities')
         assert callable(peer.stop)
         assert callable(peer.receive_hello)
-        self.peer = peer
-        BaseProtocol.__init__(self)
+        BaseProtocol.__init__(self, peer)
 
     class ping(BaseProtocol.command):
         cmd_id = 1
@@ -162,16 +165,14 @@ class P2PProtocol(BaseProtocol):
 
     class pong(BaseProtocol.command):
         cmd_id = 2
-        # structure = [('empty_list', rlp.sedes.List())]  # ???
 
     class hello(BaseProtocol.command):
         cmd_id = 0
-        max_protocols = 64
-        _sedes_capabilites_tuple = sedes.List([sedes.binary, sedes.big_endian_int])
+
         structure = [
             ('version', sedes.big_endian_int),
             ('client_version', sedes.binary),
-            ('capabilities', sedes.List([_sedes_capabilites_tuple] * max_protocols, strict=False)),
+            ('capabilities', sedes.CountableList(sedes.List([sedes.binary, sedes.big_endian_int]))),
             ('listen_port', sedes.big_endian_int),
             ('nodeid', sedes.binary)
         ]
@@ -186,15 +187,14 @@ class P2PProtocol(BaseProtocol):
 
         def receive(self, proto, data):
             log.debug('receive_hello', peer=proto.peer, version=data['version'])
+            reasons = proto.disconnect.reason
             if data['nodeid'] == proto.config['p2p']['nodeid']:
                 log.debug('connected myself')
-                return proto.send_disconnect(
-                    reason=proto.disconnect.reason.incompatible_network_protocols)
+                return proto.send_disconnect(reason=reasons.connected_to_self)
             if data['version'] != proto.version:
                 log.debug('incompatible network protocols', peer=proto.peer,
                           expected=proto.version, received=data['version'])
-                return proto.send_disconnect(
-                    reason=proto.disconnect.reason.incompatible_network_protocols)
+                return proto.send_disconnect(reason=reasons.incompatibel_p2p_version)
 
             proto.peer.receive_hello(**data)
 
