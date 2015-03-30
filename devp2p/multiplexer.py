@@ -494,9 +494,14 @@ class Multiplexer(object):
             # body normal, chunked-0: rlp(packet-type) [|| rlp(packet-data)] || padding
             item, end = rlp.codec.consume_item(body, 0)
             cmd_id = rlp.sedes.big_endian_int.deserialize(item)
+            if chunked_0:
+                payload = bytearray(body[end:])
+            else:
+                payload = body[end:]
+
             packet = Packet(protocol_id=protocol_id,
                             cmd_id=cmd_id,
-                            payload=body[end:])
+                            payload=payload)
             if chunked_0:
                 """
                 chunked packets of a sub protocol are sent in order

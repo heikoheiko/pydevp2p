@@ -64,7 +64,7 @@ def test_chunked_big():
     mux.add_protocol(p0)
 
     # big packet
-    payload = '\x00' * 1 * 1024**2
+    payload = '\x00' * 10 * 1024**2
     print 'size', len(payload)
     packet1 = Packet(p0, cmd_id=0, payload=payload)
 
