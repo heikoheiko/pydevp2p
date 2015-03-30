@@ -43,8 +43,8 @@ def test_protocol():
     hello_packet = peer.packets.pop()
     proto._receive_hello(hello_packet)
     disconnect_packet = peer.packets.pop()  # same nodeid
-    assert peer.stopped
-    peer.stopped = False
+    assert disconnect_packet.cmd_id == P2PProtocol.disconnect.cmd_id
+    assert not peer.stopped
 
     # hello (works)
     proto.send_hello()
