@@ -8,6 +8,9 @@ pydevp2p
 .. image:: https://travis-ci.org/heikoheiko/pydevp2p.png?branch=master
         :target: https://travis-ci.org/heikoheiko/pydevp2p
 
+.. image:: https://coveralls.io/repos/heikoheiko/pydevp2p/badge.svg
+        :target: https://coveralls.io/r/heikoheiko/pydevp2p
+
 .. image:: https://pypip.in/d/devp2p/badge.png
         :target: https://pypi.python.org/pypi/devp2p
 

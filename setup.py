@@ -35,7 +35,7 @@ test_requirements = []  # added to requirements. travis doesn't seem to care
 
 setup(
     name='devp2p',
-    version='0.0.1',
+    version='0.0.2',
     description='Python implementation of the Ethereum P2P stack',
     long_description=readme + '\n\n' + history,
     author='HeikoHeiko',
