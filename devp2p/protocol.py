@@ -54,7 +54,7 @@ class BaseProtocol(gevent.Greenlet):
         def receive(self, proto, data):
             "optionally implement receive"
             for cb in self.receive_callbacks:
-                cb(proto, data)
+                cb(proto, **data)
 
         # no need to redefine the following ##################################
 
