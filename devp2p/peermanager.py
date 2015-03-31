@@ -7,6 +7,7 @@ from service import WiredService
 from protocol import BaseProtocol, P2PProtocol
 from peer import Peer
 import crypto
+import utils
 
 import slogging
 log = slogging.get_logger('peermgr')
@@ -31,7 +32,8 @@ class PeerManager(WiredService):
     """
     name = 'peermanager'
     wire_protocol = P2PProtocol
-    default_config = dict(p2p=dict(privkey=crypto.mk_privkey('')))
+    default_config = dict(p2p=dict(privkey=crypto.mk_privkey(''),
+                                   bootstrap_nodes=[]))
 
     def __init__(self, app):
         log.info('PeerManager init')
@@ -41,9 +43,6 @@ class PeerManager(WiredService):
         # setup nodeid based on privkey
         if 'nodeid' not in self.config['p2p']:
             self.config['p2p']['nodeid'] = crypto.privtopub(self.config['p2p']['privkey'])
-
-    def __repr__(self):
-        return '<PeerManager>'
 
     def on_hello_received(self, p2p_proto, data):
         log.debug('hello_received', peer=p2p_proto.peer)
@@ -85,12 +84,11 @@ class PeerManager(WiredService):
         self._start_peer(connection, address, remote_pubkey)
 
     def _bootstrap(self):
-        host = self.config['p2p'].get('bootstrap_host')
-        port = self.config['p2p'].get('bootstrap_port')
-        if host:
-            log.info('connecting bootstrap server')
+        for uri in self.config['p2p']['bootstrap_nodes']:
+            ip, port, pubkey = utils.host_port_pubkey_from_uri(uri)
+            log.info('connecting bootstrap server', uri=uri)
             try:
-                self.connect((host, port))
+                self.connect((ip, port), pubkey)
             except socket.error:
                 log.warn('connecting bootstrap server failed')
 

@@ -42,3 +42,9 @@ def test_config_update():
     r = dict(a=dict(b=1, c=3), d=4, e=dict(f=1), g=5)
     assert utils.update_with_defaults(c, d) == r
     assert c == r
+
+    c = dict(a=dict(b=1), g=5, h=[], k=[2])
+    d = dict(a=dict(b=2, c=3), d=4, e=dict(f=1, i=[1, 2]), j=[])
+    r = dict(a=dict(b=1, c=3), d=4, e=dict(f=1, i=[1, 2]), j=[], g=5, h=[], k=[2])
+    assert utils.update_with_defaults(c, d) == r
+    assert c == r

@@ -52,7 +52,6 @@ def update_with_defaults(config, default_config):
             config[k] = default_config[k]
     return config
 
-
 node_uri_scheme = 'enode://'
 
 
