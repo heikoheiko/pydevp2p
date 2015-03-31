@@ -51,3 +51,19 @@ def update_with_defaults(config, default_config):
         elif k not in config:
             config[k] = default_config[k]
     return config
+
+
+node_uri_scheme = 'enode://'
+
+
+def host_port_pubkey_from_uri(uri):  # FIXME pubkey will be nodeid
+    assert uri.startswith(node_uri_scheme) and '@' in uri and ':' in uri
+    pubkey_hex, ip_port = uri[len(node_uri_scheme):].split('@')
+    assert len(pubkey_hex) == 2 * 512 / 8
+    ip, port = ip_port.split(':')
+    return ip, port, pubkey_hex.decode('hex')
+
+
+def host_port_pubkey_to_uri(self, host, port, pubkey):
+    return '%s%s@%s:%d' % (node_uri_scheme, pubkey.encode('hex'),
+                           host, port)
