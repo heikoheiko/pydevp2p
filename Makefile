@@ -47,9 +47,9 @@ coverage:
 	open htmlcov/index.html
 
 docs:
-	rm -f docs/pydevp2p.rst
+	rm -f docs/devp2p.rst
 	rm -f docs/modules.rst
-	sphinx-apidoc -o docs/ pydevp2p
+	sphinx-apidoc -o docs/ devp2p
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
 	open docs/_build/html/index.html

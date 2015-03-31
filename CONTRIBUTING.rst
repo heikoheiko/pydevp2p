@@ -108,7 +108,7 @@ Tips
 
 To run a subset of tests::
 
-    $ python -m unittest tests.test_pydevp2p
+    $ python -m unittest tests.test_devp2p
 
 To do a release::
 

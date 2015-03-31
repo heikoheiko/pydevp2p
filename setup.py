@@ -31,7 +31,7 @@ history = open('HISTORY.rst').read().replace('.. :changelog:', '')
 
 requirements = [x.strip() for x in open('requirements.txt')]
 
-test_requirements = []  # added to requirements. travis doesn't seem to care
+test_requirements = ['sphinx']  # added to requirements. travis doesn't seem to care
 
 setup(
     name='devp2p',
