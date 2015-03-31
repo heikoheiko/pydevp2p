@@ -136,9 +136,16 @@ class BaseProtocol(gevent.Greenlet):
     def send_packet(self, packet):
         self.peer.send_packet(packet)
 
-    def stop(self):
-        "hint: implement peer stopped notifcation of associated protocol here"
+    def start(self):
+        super(BaseProtocol, self).start()
+        self.service.on_wire_protocol_start(self)
+
+    def _run(self):
         pass
+
+    def stop(self):
+        self.service.on_wire_protocol_stop(self)
+        super(BaseProtocol, self).stop()
 
 
 class P2PProtocol(BaseProtocol):

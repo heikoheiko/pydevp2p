@@ -52,6 +52,7 @@ class Peer(gevent.Greenlet):
         log.debug('registering protocol', protocol=protocol.name, peer=self)
         self.protocols[protocol_class] = protocol
         self.mux.add_protocol(protocol.protocol_id)
+        protocol.start()
 
     def has_protocol(self, protocol):
         assert issubclass(protocol, BaseProtocol)
@@ -83,6 +84,7 @@ class Peer(gevent.Greenlet):
 
     def send_packet(self, packet):
         # rewrite cmd id / future FIXME  to packet.protocol_id
+        log.debug('sending packet', cmd_id=packet.cmd_id, protcol_id=packet.protocol_id, peer=self)
         for i, protocol in enumerate(self.protocols.values()):
             if packet.protocol_id > i:
                 packet.cmd_id += protocol.max_cmd_id

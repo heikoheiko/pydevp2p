@@ -61,8 +61,8 @@ class WiredService(BaseService):
     """
     wire_protocol = None
 
-    def on_peer_handshake(self, proto):
+    def on_wire_protocol_start(self, proto):
         assert isinstance(proto, self.wire_protocol)
 
-    def on_peer_disconnect(self, proto):
+    def on_wire_protocol_stop(self, proto):
         assert isinstance(proto, self.wire_protocol)
