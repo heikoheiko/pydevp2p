@@ -3,6 +3,7 @@ import gevent
 import rlp
 from rlp import sedes
 from multiplexer import Packet
+from service import WiredService
 import slogging
 log = slogging.get_logger('protocol.p2p')
 
@@ -80,10 +81,12 @@ class BaseProtocol(gevent.Greenlet):
 
         # end command base ###################################################
 
-    def __init__(self, peer):
-        "hint: implement peer started notifcation of associated protocol here"
+    def __init__(self, peer, service):
+        "hint: implement peer_started notifcation of associated protocol here"
+        assert isinstance(service, WiredService)
         assert callable(peer.send_packet)
         self.peer = peer
+        self.service = service
         self._setup()
         super(BaseProtocol, self).__init__()
 
@@ -104,7 +107,6 @@ class BaseProtocol(gevent.Greenlet):
 
             def create(*args, **kargs):
                 "get data, rlp encode, return packet"
-                print 'create called', klass
                 res = instance.create(self, *args, **kargs)
                 payload = klass.encode_payload(res)
                 return Packet(self.protocol_id, klass.cmd_id, payload=payload)
@@ -149,13 +151,13 @@ class P2PProtocol(BaseProtocol):
     name = 'p2p'
     version = 3
 
-    def __init__(self, peer):
+    def __init__(self, peer, service):
         # required by P2PProtocol
         self.config = peer.config
         assert hasattr(peer, 'capabilities')
         assert callable(peer.stop)
         assert callable(peer.receive_hello)
-        BaseProtocol.__init__(self, peer)
+        BaseProtocol.__init__(self, peer, service)
 
     class ping(BaseProtocol.command):
         cmd_id = 1

@@ -1,6 +1,7 @@
 import gevent
 from collections import OrderedDict
 from protocol import BaseProtocol, P2PProtocol
+from service import WiredService
 import multiplexer
 from muxsession import MultiplexedSession
 import slogging
@@ -30,11 +31,10 @@ class Peer(gevent.Greenlet):
         privkey = self.config['p2p']['privkey']
         self.mux = MultiplexedSession(privkey, hello_packet,
                                       token_by_pubkey=dict(), remote_pubkey=remote_pubkey)
-        self.mux.add_protocol(p2p_proto.protocol_id)
-        # learned and set on handshake
-        self.nodeid = None
-        self.client_version = None
-        self.listen_port = None
+
+        # register p2p protocol
+        assert issubclass(self.peermanager.wire_protocol, P2PProtocol)
+        self.connect_service(self.peermanager)
 
     def __repr__(self):
         return '<Peer(%r) thread=%r>' % (self.connection.getpeername(), id(gevent.getcurrent()))
@@ -43,32 +43,33 @@ class Peer(gevent.Greenlet):
     def ip_port(self):
         return self.connection.getpeername()
 
-    # protocols (distinguish between available and active protocols)
-    def register_protocol(self, protocol):
-        assert isinstance(protocol, BaseProtocol)
-        assert protocol.name not in self.protocols
+    def connect_service(self, service):
+        assert isinstance(service, WiredService)
+        protocol_class = service.wire_protocol
+        assert issubclass(protocol_class, BaseProtocol)
+        # create protcol instance which connects peer with serivce
+        protocol = protocol_class(self, service)
+        # register protocol
+        assert protocol_class not in self.protocols
         log.debug('registering protocol', protocol=protocol.name, peer=self)
-        self.protocols[protocol.name] = protocol
-        if self.mux:
-            self.mux.add_protocol(protocol.protocol_id)
+        self.protocols[protocol_class] = protocol
+        self.mux.add_protocol(protocol.protocol_id)
 
-    def deregister_protocol(self, protocol):
-        assert isinstance(protocol, BaseProtocol)
-        del self.protocols[protocol.name]
-
-    def has_protocol(self, name):
-        assert isinstance(name, str)
-        return name in self.protocols
+    def has_protocol(self, protocol):
+        assert issubclass(protocol, BaseProtocol)
+        return protocol in self.protocols
 
     def receive_hello(self, version, client_version, capabilities, listen_port, nodeid):
-        for name, version in capabilities:
-            assert isinstance(name, str)
-            assert isinstance(version, int)
+        # register in common protocols
+        for service in self.peermanager.wired_services:
+            if (service.wire_protocol.name, service.wire_protocol.version) in capabilities:
+                if service != self.peermanger:  # p2p protcol already registered
+                    self.connect_service(service)
 
     @property
     def capabilities(self):
-        "used by protocol hello"   # FIXME, peermanager needs to know!
-        return [(p.name, p.version) for p in self.protocols.values()]
+        return [(s.wire_protocol.name, s.wire_protocol.version)
+                for s in self.peermanager.wired_services]
 
     # sending p2p messages
 

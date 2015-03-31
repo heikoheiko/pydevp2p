@@ -28,7 +28,7 @@ class BaseService(Greenlet):
         Greenlet.start(self)
 
     def stop(self):
-        Greenlet.stop(self)
+        Greenlet.kill(self)
 
     @classmethod
     def register_with_app(klass, app):
@@ -37,4 +37,32 @@ class BaseService(Greenlet):
         create a service instance, propably based on
         app.config and app.services
         """
-        app.register_service(klass(app))
+        s = klass(app)
+        app.register_service(s)
+        return s
+
+    def _run(self):
+        "implement this for the greenlet event loop"
+        pass
+
+
+class WiredService(BaseService):
+
+    """
+    A Service which has an associated WireProtocol
+
+    peermanager checks all services registered with app.services
+        if isinstance(service, WiredService):
+            add WiredService.wire_protocol to announced capabilities
+            if a peer with the same protocol is connected
+                a WiredService.wire_protocol instance is created
+                with instances of Peer and WiredService
+                WiredService.wire_protocol(Peer(), WiredService() )
+    """
+    wire_protocol = None
+
+    def on_peer_handshake(self, proto):
+        assert isinstance(proto, self.wire_protocol)
+
+    def on_peer_disconnect(self, proto):
+        assert isinstance(proto, self.wire_protocol)

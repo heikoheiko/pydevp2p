@@ -3,19 +3,19 @@ import gevent
 import socket
 from gevent.server import StreamServer
 from gevent.socket import create_connection
-from service import BaseService
-from protocol import BaseProtocol
+from service import WiredService
+from protocol import BaseProtocol, P2PProtocol
 from peer import Peer
+import crypto
 
 import slogging
 log = slogging.get_logger('peermgr')
 
 
-class PeerManager(BaseService):
+class PeerManager(WiredService):
 
     """
     todo:
-        on peer Hello adds services to peer
         connects new peers if there are too few
         selects peers based on a DHT
         keeps track of peer reputation
@@ -30,12 +30,17 @@ class PeerManager(BaseService):
                     connect closest node
     """
     name = 'peermanager'
+    wire_protocol = P2PProtocol
+    default_config = dict(p2p=dict(privkey=crypto.mk_privkey('')))
 
     def __init__(self, app):
-        self.config = app.config
-        BaseService.__init__(self, app)
         log.info('PeerManager init')
         self.peers = []
+        WiredService.__init__(self, app)
+
+        # setup nodeid based on privkey
+        if 'nodeid' not in self.config['p2p']:
+            self.config['p2p']['nodeid'] = crypto.privtopub(self.config['p2p']['privkey'])
 
     def __repr__(self):
         return '<PeerManager>'
@@ -43,6 +48,10 @@ class PeerManager(BaseService):
     def on_hello_received(self, p2p_proto, data):
         log.debug('hello_received', peer=p2p_proto.peer)
         # register more protocols
+
+    @property
+    def wired_services(self):
+        return [s for s in self.app.services.values() if isinstance(s, WiredService)]
 
     def broadcast(self, method, num_peers=None, *args, **kargs):
         assert issubclass(method.im_class, BaseProtocol)

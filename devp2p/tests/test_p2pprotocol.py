@@ -1,5 +1,6 @@
 from devp2p.protocol import P2PProtocol
-
+from devp2p.service import WiredService
+from devp2p.app import BaseApp
 # notify peer of successfulll handshake!
 # so other protocols get registered
 # so other protocols can do their handshake
@@ -28,7 +29,7 @@ class PeerMock(object):
 
 def test_protocol():
     peer = PeerMock()
-    proto = P2PProtocol(peer=peer)
+    proto = P2PProtocol(peer, WiredService(BaseApp()))
 
     # ping pong
     proto.send_ping()
@@ -65,7 +66,7 @@ def test_protocol():
 
 def test_callback():
     peer = PeerMock()
-    proto = P2PProtocol(peer=peer)
+    proto = P2PProtocol(peer, WiredService(BaseApp()))
 
     # setup callback
     r = []

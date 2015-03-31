@@ -59,8 +59,8 @@ def test_big_transfer():
     a_app, b_app = get_connected_apps()
     gevent.sleep(.1)
 
-    a_protocol = a_app.services.peermanager.peers[0].protocols['p2p']
-    b_protocol = b_app.services.peermanager.peers[0].protocols['p2p']
+    a_protocol = a_app.services.peermanager.peers[0].protocols[devp2p.protocol.P2PProtocol]
+    b_protocol = b_app.services.peermanager.peers[0].protocols[devp2p.protocol.P2PProtocol]
 
     st = time.time()
 

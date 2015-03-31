@@ -4,6 +4,8 @@ from devp2p.muxsession import MultiplexedSession
 from devp2p.multiplexer import Packet
 from devp2p.rlpxcipher import RLPxSession
 from devp2p.protocol import P2PProtocol
+from devp2p.service import WiredService
+from devp2p.app import BaseApp
 
 
 class PeerMock(object):
@@ -14,7 +16,7 @@ class PeerMock(object):
 
 def test_session():
 
-    proto = P2PProtocol(peer=PeerMock())
+    proto = P2PProtocol(peer=PeerMock(), service=WiredService(BaseApp()))
     hello_packet = proto.create_hello()
 
     responder_privkey = mk_privkey('secret1')
