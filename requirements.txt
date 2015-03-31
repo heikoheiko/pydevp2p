@@ -8,5 +8,7 @@ bitcoin
 ipaddress
 pytest
 pytest-capturelog
+pytest-timeout
 coverage
 tox
+pycrypto

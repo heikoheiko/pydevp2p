@@ -20,8 +20,6 @@ implementing strategies:
 
 import time
 import operator
-import networkx as nx
-import matplotlib.pyplot as plt
 import devp2p.kademlia
 from test_kademlia_protocol import test_many, get_wired_protocol
 from collections import OrderedDict
@@ -304,6 +302,8 @@ class CNodeKademliaRandom(CNodeKademlia):
 
 
 def analyze(network):
+    import networkx as nx
+
     G = nx.Graph()
 
     def weight(a, b):
@@ -375,6 +375,7 @@ def analyze(network):
 
 
 def draw(G, metrics=dict()):
+    import matplotlib.pyplot as plt
     """
     dot - "hierarchical" or layered drawings of directed graphs. This is the default tool to use if edges have directionality.
 
