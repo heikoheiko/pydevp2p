@@ -1,6 +1,7 @@
 from UserDict import IterableUserDict
 from service import BaseService
 from slogging import get_logger
+import utils
 import crypto
 log = get_logger('app')
 
@@ -8,26 +9,22 @@ log = get_logger('app')
 class BaseApp(object):
 
     client_version = 'pydevp2p 0.1.1'
+    default_config = dict(client_version=client_version)
 
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config=default_config):
+        self.config = utils.update_with_defaults(config, self.default_config)
         self.services = IterableUserDict()
-        self.prepare_config()
+        self._prepare_config()
 
-    def prepare_config(self):
+    def _prepare_config(self):
         def _with_dict(d):
-            "recursively look for and decode hex encoded data"
+            "recursively search and decode hex encoded data"
             for k, v in d.items():
                 if k.endswith('_hex'):
                     d[k[:-len('_hex')]] = v.decode('hex')
                 if isinstance(v, dict):
                     _with_dict(v)
         _with_dict(self.config)
-        _c = self.config['p2p']
-        if 'nodeid' not in _c and 'privkey' in _c:
-            _c['nodeid'] = crypto.privtopub(_c['privkey'])
-        if 'client_version' not in self.config:
-            self.config['client_version'] = self.client_version
 
     def register_service(self, service):
         """

@@ -1,4 +1,5 @@
 import struct
+import collections
 
 
 def int_to_big_endian(integer):
@@ -40,3 +41,13 @@ def int_to_big_endian4(integer):
     return struct.pack('>I', integer)
 
 ienc4 = int_to_big_endian4
+
+
+def update_with_defaults(config, default_config):
+    for k, v in default_config.iteritems():
+        if isinstance(v, collections.Mapping):
+            r = update_with_defaults(config.get(k, {}), v)
+            config[k] = r
+        elif k not in config:
+            config[k] = default_config[k]
+    return config

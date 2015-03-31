@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from gevent import Greenlet
+import utils
 
 
 class BaseService(Greenlet):
@@ -16,10 +17,12 @@ class BaseService(Greenlet):
     """
 
     name = ''
+    default_config = {name: dict()}
 
     def __init__(self, app):
         Greenlet.__init__(self)
         self.app = app
+        self.config = utils.update_with_defaults(app.config, self.default_config)
 
     def start(self):
         Greenlet.start(self)
