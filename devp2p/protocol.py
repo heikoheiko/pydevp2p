@@ -31,6 +31,7 @@ class BaseProtocol(gevent.Greenlet):
     protocol_id = 0
     name = ''
     version = 0
+    max_cmd_id = 0  # reserved cmd space
 
     class command(object):
 
@@ -126,7 +127,6 @@ class BaseProtocol(gevent.Greenlet):
             setattr(self, 'send_' + klass.__name__, send)
 
         self.cmd_by_id = dict((klass.cmd_id, klass.__name__) for klass in klasses)
-        self.max_cmd_id = max(self.cmd_by_id.keys())
 
     def receive_packet(self, packet):
         cmd_name = self.cmd_by_id[packet.cmd_id]
@@ -150,6 +150,7 @@ class P2PProtocol(BaseProtocol):
     protocol_id = 0
     name = 'p2p'
     version = 3
+    max_cmd_id = 15
 
     def __init__(self, peer, service):
         # required by P2PProtocol

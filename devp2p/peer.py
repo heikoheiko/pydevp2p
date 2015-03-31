@@ -1,4 +1,5 @@
 import gevent
+import operator
 from collections import OrderedDict
 from protocol import BaseProtocol, P2PProtocol
 from service import WiredService
@@ -58,10 +59,20 @@ class Peer(gevent.Greenlet):
 
     def receive_hello(self, version, client_version, capabilities, listen_port, nodeid):
         # register in common protocols
-        for service in self.peermanager.wired_services:
-            if (service.wire_protocol.name, service.wire_protocol.version) in capabilities:
-                if service != self.peermanger:  # p2p protcol already registered
-                    self.connect_service(service)
+        log.info('reveived hello', version=version,
+                 client_version=client_version, capabilities=capabilities)
+        log.info('connecting services', services=self.peermanager.wired_services)
+        remote_services = dict((name, version) for name, version in capabilities)
+        for service in sorted(self.peermanager.wired_services, key=operator.attrgetter('name')):
+            proto = service.wire_protocol
+            assert isinstance(service, WiredService)
+            if proto.name in remote_services:
+                if remote_services[proto.name] == proto.version:
+                    if service != self.peermanager:  # p2p protcol already registered
+                        self.connect_service(service)
+                else:
+                    log.info('wrong version', service=proto.name, local_version=proto.version,
+                             remote_version=remote_services[proto.name])
 
     @property
     def capabilities(self):
@@ -90,15 +101,22 @@ class Peer(gevent.Greenlet):
         # get protocol and protocol.cmd_id from packet.cmd_id
         max_id = 0
         found = False
+        assert packet.protocol_id == 0  # FIXME, should be used by other peers
         for protocol in self.protocols.values():
+            log.debug('with', proto=protocol, max_id=max_id, proto_max_id=protocol.max_cmd_id)
+            log.debug('compare', cmd_id=packet.cmd_id,
+                      smaller_than=max_id + protocol.max_cmd_id + 1)
             if packet.cmd_id < max_id + protocol.max_cmd_id + 1:
                 found = True
-                packet.cmd_id -= max_id  # rewrite cmd_id
+                packet.cmd_id -= 0 if max_id == 0 else max_id + 1  # rewrite cmd_id
+                log.debug('found', cmd_id=packet.cmd_id, protocol=protocol)
                 break
             max_id += protocol.max_cmd_id
         if not found:
             raise Exception('no protocol for id %s' % packet.cmd_id)
+
         # done get protocol
+        log.debug('cmd', cmd=protocol.cmd_by_id[packet.cmd_id])
         protocol.receive_packet(packet)
 
     def send(self, data):
