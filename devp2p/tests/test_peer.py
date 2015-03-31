@@ -68,14 +68,18 @@ def test_big_transfer():
         print 'took', time.time() - st, len(data['raw_data'])
 
     b_protocol.receive_transfer_callbacks.append(cb)
-    a_protocol.send_transfer(raw_data='\x00' * 1 * 1000 * 1000)
+    raw_data = '0' * 1 * 1000 * 100
+    a_protocol.send_transfer(raw_data=raw_data)
 
-    # 0.35 secs for 1mb
-    # 13secs for 10mb
+    # 0.03 secs for 0.1mb
+    # 0.28 secs for 1mb
+    # 2.7 secs for 10mb
+    # 3.7 MB/s == 30Mbit
 
     gevent.sleep(1)
     a_app.stop()
     b_app.stop()
+    gevent.sleep(0.1)
 
 
 def connect_go():

@@ -71,10 +71,10 @@ class BaseProtocol(gevent.Greenlet):
         @classmethod
         def decode_payload(cls, rlp_data):
             try:
-                data = rlp.decode(rlp_data, sedes=sedes.List([x[1] for x in cls.structure]))
+                data = rlp.decode(str(rlp_data), sedes=sedes.List([x[1] for x in cls.structure]))
                 assert len(data) == len(cls.structure)
-            except (AssertionError, rlp.RLPException) as e:
-                print repr(rlp.decode(rlp_data))
+            except (AssertionError, rlp.RLPException, TypeError) as e:
+                # print repr(rlp.decode(rlp_data))
                 raise e
             # convert to dict
             return dict((cls.structure[i][0], v) for i, v in enumerate(data))
@@ -199,6 +199,17 @@ class P2PProtocol(BaseProtocol):
                 return proto.send_disconnect(reason=reasons.incompatibel_p2p_version)
 
             proto.peer.receive_hello(**data)
+
+    @classmethod
+    def get_hello_packet(cls, peer):
+        "special: we need this packet before the protcol can be initalized"
+        res = dict(version=cls.version,
+                   client_version=peer.config['client_version'],
+                   capabilities=peer.capabilities,
+                   listen_port=peer.config['p2p']['listen_port'],
+                   nodeid=peer.config['p2p']['nodeid'])
+        payload = cls.hello.encode_payload(res)
+        return Packet(cls.protocol_id, cls.hello.cmd_id, payload=payload)
 
     class disconnect(BaseProtocol.command):
         cmd_id = 3

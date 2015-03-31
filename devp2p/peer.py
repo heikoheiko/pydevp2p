@@ -11,9 +11,10 @@ log = slogging.get_logger('peer')
 
 class Peer(gevent.Greenlet):
 
-    mux = None
+    remote_node = None
+    remote_client_version = None
 
-    def __init__(self, peermanager, connection, remote_pubkey=None):
+    def __init__(self, peermanager, connection, remote_pubkey=None):  # FIXME node vs remote_pubkey
         super(Peer, self).__init__()
         self.peermanager = peermanager
         self.connection = connection
@@ -22,13 +23,9 @@ class Peer(gevent.Greenlet):
 
         log.debug('peer init', peer=self)
 
-        # create and register p2p protocol
-        p2p_proto = P2PProtocol(self)
-        self.register_protocol(p2p_proto)
-        hello_packet = p2p_proto.create_hello()
-
         # create multiplexed encrypted session
         privkey = self.config['p2p']['privkey']
+        hello_packet = P2PProtocol.get_hello_packet(self)
         self.mux = MultiplexedSession(privkey, hello_packet,
                                       token_by_pubkey=dict(), remote_pubkey=remote_pubkey)
 
@@ -107,7 +104,7 @@ class Peer(gevent.Greenlet):
     def send(self, data):
         if data:
             log.debug('send', size=len(data))
-            self.connection.sendall(data)  # check if gevent chunkes and switchs contexts
+            self.connection.sendall(data)  # check if gevent chunkes and switches contexts
             log.debug('send sent', size=len(data))
 
     def _run(self):
