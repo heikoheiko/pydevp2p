@@ -8,6 +8,14 @@ import slogging
 log = slogging.get_logger('protocol')
 
 
+class ProtocolError(Exception):
+    pass
+
+
+class SubProtocolError(ProtocolError):
+    pass
+
+
 class BaseProtocol(gevent.Greenlet):
 
     """
@@ -38,6 +46,8 @@ class BaseProtocol(gevent.Greenlet):
         """
         - set cmd_id
         - define structure for rlp de/endcoding by sedes
+            - list(arg_name, rlp.sedes.type), ...)  # for structs
+            - sedes.CountableList(sedes.type)       # for lists with uniform item type
         optionally implement
         - create
         - receive
@@ -50,35 +60,50 @@ class BaseProtocol(gevent.Greenlet):
         def create(self, proto, *args, **kargs):
             "optionally implement create"
             assert isinstance(proto, BaseProtocol)
-            return args or kargs
+            assert not (kargs and isinstance(self.structure, sedes.CountableList))
+            return kargs or args
 
         def receive(self, proto, data):
             "optionally implement receive"
             for cb in self.receive_callbacks:
-                cb(proto, **data)
+                if isinstance(self.structure, sedes.CountableList):
+                    cb(proto, data)
+                else:
+                    cb(proto, **data)
 
         # no need to redefine the following ##################################
 
         def __init__(self):
+            assert isinstance(self.structure, (list, sedes.CountableList))
             self.receive_callbacks = []
 
         @classmethod
         def encode_payload(cls, data):
             if isinstance(data, dict):  # convert dict to ordered list
+                assert isinstance(cls.structure, list)
                 data = [data[x[0]] for x in cls.structure]
-            assert len(data) == len(cls.structure)
-            return rlp.encode(data, sedes=sedes.List([x[1] for x in cls.structure]))
+            if isinstance(cls.structure, sedes.CountableList):
+                return rlp.encode(data, cls.structure)
+            else:
+                assert len(data) == len(cls.structure)
+                return rlp.encode(data, sedes=sedes.List([x[1] for x in cls.structure]))
 
         @classmethod
         def decode_payload(cls, rlp_data):
+            log.debug('decoding rlp', size=len(rlp_data))
+            if isinstance(cls.structure, sedes.CountableList):
+                decoder = cls.structure
+            else:
+                decoder = sedes.List([x[1] for x in cls.structure])
             try:
-                data = rlp.decode(str(rlp_data), sedes=sedes.List([x[1] for x in cls.structure]))
-                assert len(data) == len(cls.structure), (len(data), len(cls.structure), repr(data))
+                data = rlp.decode(str(rlp_data), sedes=decoder)
             except (AssertionError, rlp.RLPException, TypeError) as e:
                 print repr(rlp.decode(rlp_data))
                 raise e
-            # convert to dict
-            return dict((cls.structure[i][0], v) for i, v in enumerate(data))
+            if isinstance(cls.structure, sedes.CountableList):
+                return data
+            else:  # convert to dict
+                return dict((cls.structure[i][0], v) for i, v in enumerate(data))
 
         # end command base ###################################################
 
