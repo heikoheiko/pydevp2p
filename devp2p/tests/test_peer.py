@@ -1,6 +1,10 @@
 from devp2p import peermanager
 from devp2p import crypto
 from devp2p.app import BaseApp
+import devp2p.muxsession
+import rlp
+import devp2p.p2p_protocol
+import time
 import gevent
 import copy
 
@@ -40,12 +44,8 @@ def test_handshake():
 
 
 def test_big_transfer():
-    import devp2p.muxsession
-    import rlp
-    import devp2p.protocol
-    import time
 
-    class transfer(devp2p.protocol.BaseProtocol.command):
+    class transfer(devp2p.p2p_protocol.BaseProtocol.command):
         cmd_id = 4
         structure = [('raw_data', rlp.sedes.binary)]
 
@@ -53,14 +53,14 @@ def test_big_transfer():
             return [raw_data]
 
     # money patches
-    devp2p.protocol.P2PProtocol.transfer = transfer
+    devp2p.p2p_protocol.P2PProtocol.transfer = transfer
     devp2p.muxsession.MultiplexedSession.max_window_size = 8 * 1024
 
     a_app, b_app = get_connected_apps()
     gevent.sleep(.1)
 
-    a_protocol = a_app.services.peermanager.peers[0].protocols[devp2p.protocol.P2PProtocol]
-    b_protocol = b_app.services.peermanager.peers[0].protocols[devp2p.protocol.P2PProtocol]
+    a_protocol = a_app.services.peermanager.peers[0].protocols[devp2p.p2p_protocol.P2PProtocol]
+    b_protocol = b_app.services.peermanager.peers[0].protocols[devp2p.p2p_protocol.P2PProtocol]
 
     st = time.time()
 

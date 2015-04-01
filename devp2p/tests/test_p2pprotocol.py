@@ -1,4 +1,4 @@
-from devp2p.protocol import P2PProtocol
+from devp2p.p2p_protocol import P2PProtocol
 from devp2p.service import WiredService
 from devp2p.app import BaseApp
 # notify peer of successfulll handshake!

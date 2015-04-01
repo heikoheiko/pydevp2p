@@ -1,7 +1,8 @@
 import gevent
 import operator
 from collections import OrderedDict
-from protocol import BaseProtocol, P2PProtocol
+from protocol import BaseProtocol
+from p2p_protocol import P2PProtocol
 from service import WiredService
 import multiplexer
 from muxsession import MultiplexedSession

@@ -3,7 +3,7 @@ from devp2p.crypto import mk_privkey, privtopub
 from devp2p.muxsession import MultiplexedSession
 from devp2p.multiplexer import Packet
 from devp2p.rlpxcipher import RLPxSession
-from devp2p.protocol import P2PProtocol
+from devp2p.p2p_protocol import P2PProtocol
 from devp2p.service import WiredService
 from devp2p.app import BaseApp
 

@@ -4,7 +4,8 @@ import socket
 from gevent.server import StreamServer
 from gevent.socket import create_connection
 from service import WiredService
-from protocol import BaseProtocol, P2PProtocol
+from protocol import BaseProtocol
+from p2p_protocol import P2PProtocol
 from peer import Peer
 import crypto
 import utils
