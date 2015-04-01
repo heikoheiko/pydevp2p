@@ -85,48 +85,49 @@ class Peer(gevent.Greenlet):
 
     def send_packet(self, packet):
         # rewrite cmd id / future FIXME  to packet.protocol_id
-        log.debug('sending packet', cmd_id=packet.cmd_id, protcol_id=packet.protocol_id, peer=self)
+        protocol = list(self.protocols.values())[packet.protocol_id]
+        log.debug('send packet', cmd=protocol.cmd_by_id[packet.cmd_id], protcol=protocol.name,
+                  peer=self)
+        # rewrite cmd_id  # FIXME
         for i, protocol in enumerate(self.protocols.values()):
             if packet.protocol_id > i:
-                packet.cmd_id += protocol.max_cmd_id
+                packet.cmd_id += (0 if protocol.max_cmd_id == 0 else protocol.max_cmd_id + 1)
+            if packet.protocol_id == protocol.protocol_id:
+                break
+
         packet.protocol_id = 0
         # done rewrite
         self.mux.add_packet(packet)
 
     # receiving p2p messages
 
-    def _handle_packet(self, packet):
-        assert isinstance(packet, multiplexer.Packet)
-        log.debug('handling packet', cmd_id=packet.cmd_id, peer=self)
+    def protocol_cmd_id_from_packet(self, packet):
         # packet.protocol_id not yet used. old adaptive cmd_ids instead
         # future FIXME  to packet.protocol_id
 
         # get protocol and protocol.cmd_id from packet.cmd_id
         max_id = 0
-        found = False
         assert packet.protocol_id == 0  # FIXME, should be used by other peers
         for protocol in self.protocols.values():
-            log.debug('with', proto=protocol, max_id=max_id, proto_max_id=protocol.max_cmd_id)
-            log.debug('compare', cmd_id=packet.cmd_id,
-                      smaller_than=max_id + protocol.max_cmd_id + 1)
             if packet.cmd_id < max_id + protocol.max_cmd_id + 1:
-                found = True
-                packet.cmd_id -= 0 if max_id == 0 else max_id + 1  # rewrite cmd_id
-                log.debug('found', cmd_id=packet.cmd_id, protocol=protocol)
-                break
+                return protocol, packet.cmd_id - (0 if max_id == 0 else max_id + 1)
             max_id += protocol.max_cmd_id
-        if not found:
-            raise Exception('no protocol for id %s' % packet.cmd_id)
 
-        # done get protocol
-        log.debug('cmd', cmd=protocol.cmd_by_id[packet.cmd_id])
+        raise Exception('no protocol for id %s' % packet.cmd_id)
+
+    def _handle_packet(self, packet):
+        assert isinstance(packet, multiplexer.Packet)
+        protocol, cmd_id = self.protocol_cmd_id_from_packet(packet)
+        log.debug('recv packet', cmd=protocol.cmd_by_id[
+                  cmd_id], protocol=protocol.name, orig_cmd_id=packet.cmd_id)
+        packet.cmd_id = cmd_id  # rewrite
         protocol.receive_packet(packet)
 
     def send(self, data):
         if data:
-            log.debug('send', size=len(data))
+            #log.debug('send', size=len(data))
             self.connection.sendall(data)  # check if gevent chunkes and switches contexts
-            log.debug('send sent', size=len(data))
+            #log.debug('send sent', size=len(data))
 
     def _run(self):
         """

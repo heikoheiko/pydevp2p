@@ -73,9 +73,9 @@ class BaseProtocol(gevent.Greenlet):
         def decode_payload(cls, rlp_data):
             try:
                 data = rlp.decode(str(rlp_data), sedes=sedes.List([x[1] for x in cls.structure]))
-                assert len(data) == len(cls.structure)
+                assert len(data) == len(cls.structure), (len(data), len(cls.structure), repr(data))
             except (AssertionError, rlp.RLPException, TypeError) as e:
-                # print repr(rlp.decode(rlp_data))
+                print repr(rlp.decode(rlp_data))
                 raise e
             # convert to dict
             return dict((cls.structure[i][0], v) for i, v in enumerate(data))
