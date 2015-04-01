@@ -85,6 +85,8 @@ class PeerManager(WiredService):
         self._start_peer(connection, address, remote_pubkey)
 
     def _bootstrap(self):
+        if not isinstance(self.config['p2p']['bootstrap_nodes'], list):  # HACK
+            self.config['p2p']['bootstrap_nodes'] = [self.config['p2p']['bootstrap_nodes']]
         for uri in self.config['p2p']['bootstrap_nodes']:
             ip, port, pubkey = utils.host_port_pubkey_from_uri(uri)
             log.info('connecting bootstrap server', uri=uri)
