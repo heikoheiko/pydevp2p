@@ -75,13 +75,13 @@ class P2PProtocol(BaseProtocol):
         self.monitor = ConnectionMonitor(self)
 
     class ping(BaseProtocol.command):
-        cmd_id = 1
+        cmd_id = 2
 
         def receive(self, proto, data):
             proto.send_pong()
 
     class pong(BaseProtocol.command):
-        cmd_id = 2
+        cmd_id = 3
 
     class hello(BaseProtocol.command):
         cmd_id = 0
@@ -129,7 +129,7 @@ class P2PProtocol(BaseProtocol):
         return Packet(cls.protocol_id, cls.hello.cmd_id, payload=payload)
 
     class disconnect(BaseProtocol.command):
-        cmd_id = 3
+        cmd_id = 1
         structure = [('reason', sedes.big_endian_int)]
 
         class reason(object):
@@ -146,10 +146,12 @@ class P2PProtocol(BaseProtocol):
             #                          what a trusted peer told us
             connected_to_self = 10
             timeout = 11             # i.e. nothing received since sending last ping
+            subprotocol_error = 12
             other = 16               # Some other reason specific to a subprotocol
 
-        def reason_name(self, id):
-            return [k for k, v in self.reason.__dict__.items() if v == id][0]
+        def reason_name(self, _id):
+            d = dict((_id, name) for name, _id in self.reason.__dict__.items())
+            return d.get(_id, 'unknown (id:{})'.format(_id))
 
         def create(self, proto, reason=reason.client_quitting):
             assert self.reason_name(reason)
