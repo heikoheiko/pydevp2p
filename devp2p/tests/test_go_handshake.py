@@ -163,13 +163,12 @@ def test_handshake():
     print 'packet_type', repr(packet_type)
 
     # decode hello body
-    max_protocols = 64
     _sedes_capabilites_tuple = sedes.List([sedes.binary, sedes.big_endian_int])
 
     structure = [
         ('version', sedes.big_endian_int),
         ('client_version', sedes.big_endian_int),
-        ('capabilities', sedes.List([_sedes_capabilites_tuple] * max_protocols, strict=False)),
+        ('capabilities', sedes.CountableList(_sedes_capabilites_tuple)),
         ('listen_port', sedes.big_endian_int),
         ('nodeid', sedes.binary)
     ]

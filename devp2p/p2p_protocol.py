@@ -30,10 +30,9 @@ class ConnectionMonitor(gevent.Greenlet):
         self.last_response = time.time()
         self.samples.appendleft(self.last_response - self.last_request)
 
-    @property
     def latency(self, num_samples=max_samples):
         num_samples = min(num_samples, len(self.samples))
-        return sum(self.samples[:num_samples]) / num_samples if num_samples else 1
+        return sum(self.samples[i] for i in range(num_samples)) / num_samples if num_samples else 1
 
     def _run(self):
         self.log.debug('started', monitor=self)
@@ -42,7 +41,7 @@ class ConnectionMonitor(gevent.Greenlet):
             self.proto.send_ping()
             now = self.last_request = time.time()
             gevent.sleep(self.ping_interval)
-            self.log.debug('latency', monitor=self, latency=self.latency)
+            self.log.debug('latency', monitor=self, latency=self.latency())
             if now - self.last_response > self.response_delay_threshold:
                 self.log.debug('unresponsive_peer', monitor=self)
                 self.proto.stop()
