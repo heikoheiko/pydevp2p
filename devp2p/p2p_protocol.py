@@ -4,7 +4,52 @@ from rlp import sedes
 from multiplexer import Packet
 from protocol import BaseProtocol
 import slogging
+import collections
 
+
+class ConnectionMonitor(gevent.Greenlet):
+
+    "monitors the connection by sending pings and checking pongs"
+    ping_interval = 1.
+    response_delay_threshold = 2.
+    max_samples = 1000
+    log = slogging.get_logger('p2p.ctxmonitor')
+
+    def __init__(self, proto):
+        self.log.debug('init')
+        assert isinstance(proto, P2PProtocol)
+        self.proto = proto
+        self.samples = collections.deque(maxlen=self.max_samples)
+        self.last_response = self.last_request = time.time()
+        super(ConnectionMonitor, self).__init__()
+        # track responses
+        self.proto.receive_pong_callbacks.append(self.track_response)
+        self.proto.receive_hello_callbacks.append(lambda p, **kargs: self.start())
+
+    def track_response(self, proto):
+        self.last_response = time.time()
+        self.samples.appendleft(self.last_response - self.last_request)
+
+    @property
+    def latency(self, num_samples=max_samples):
+        num_samples = min(num_samples, len(self.samples))
+        return sum(self.samples[:num_samples]) / num_samples if num_samples else 1
+
+    def _run(self):
+        self.log.debug('started', monitor=self)
+        while True:
+            self.log.debug('pinging', monitor=self)
+            self.proto.send_ping()
+            now = self.last_request = time.time()
+            gevent.sleep(self.ping_interval)
+            self.log.debug('latency', monitor=self, latency=self.latency)
+            if now - self.last_response > self.response_delay_threshold:
+                self.log.debug('unresponsive_peer', monitor=self)
+                self.proto.stop()
+                self.kill()
+
+
+########################################
 
 log = slogging.get_logger('protocol.p2p')
 
@@ -27,6 +72,7 @@ class P2PProtocol(BaseProtocol):
         assert callable(peer.stop)
         assert callable(peer.receive_hello)
         super(P2PProtocol, self).__init__(peer, service)
+        self.monitor = ConnectionMonitor(self)
 
     class ping(BaseProtocol.command):
         cmd_id = 1
@@ -68,6 +114,8 @@ class P2PProtocol(BaseProtocol):
                 return proto.send_disconnect(reason=reasons.incompatibel_p2p_version)
 
             proto.peer.receive_hello(**data)
+            # super(hello, self).receive(proto, data)
+            BaseProtocol.command.receive(self, proto, data)
 
     @classmethod
     def get_hello_packet(cls, peer):
@@ -113,51 +161,3 @@ class P2PProtocol(BaseProtocol):
             log.debug('receive_disconnect', peer=proto.peer,
                       reason=self.reason_name(data['reason']))
             proto.peer.stop()
-
-
-log = slogging.get_logger('p2p.ctxmonitor')
-
-
-class ConnectionMonitor(gevent.Greenlet):
-    ping_interval = 1.
-    response_delay_threshold = 2.
-    max_samples = 10
-
-    def __init__(self, peer, service):
-        assert isinstance(self, P2PProtocol)
-        super(ConnectionMonitor, self).__init__(peer, service)
-        self.samples = []
-        self.last_request = time.time()
-        self.last_response = time.time()
-
-    def track_request(self):
-        self.last_request = time.time()
-
-    def track_response(self):
-        self.last_response = time.time()
-        dt = self.last_response - self.last_request
-        self.samples.append(dt)
-        if len(self.samples) > self.max_samples:
-            self.samples.pop(0)
-
-    @property
-    def last_response_elapsed(self):
-        return time.time() - self.last_response
-
-    @property
-    def latency(self, num_samples=0):
-        if not self.samples:
-            return None
-        num_samples = min(num_samples or self.max_samples, len(self.samples))
-        return sum(self.samples[:num_samples]) / num_samples
-
-    def _run(self):
-        log.debug('started', monitor=self)
-        while True:
-            log.debug('pinging', monitor=self)
-            self.send_ping()
-            gevent.sleep(self.ping_interval)
-            log.debug('latency', monitor=self, latency=self.latency)
-            if self.last_response_elapsed > self.response_delay_threshold:
-                log.debug('unresponsive_peer', monitor=self)
-                self.stop()
