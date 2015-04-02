@@ -62,7 +62,9 @@ class WiredService(BaseService):
     wire_protocol = None
 
     def on_wire_protocol_start(self, proto):
-        assert isinstance(proto, self.wire_protocol)
+        from protocol import BaseProtocol
+        assert isinstance(proto, BaseProtocol)
 
     def on_wire_protocol_stop(self, proto):
-        assert isinstance(proto, self.wire_protocol)
+        from protocol import BaseProtocol
+        assert isinstance(proto, BaseProtocol)
