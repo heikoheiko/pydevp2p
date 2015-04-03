@@ -1,5 +1,5 @@
 pyelliptic
-rlp
+-e git://github.com/ethereum/pyrlp@develop#egg=rlp-origin_develop
 wheel
 gevent
 tinyrpc

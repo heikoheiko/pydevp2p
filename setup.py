@@ -29,7 +29,6 @@ class PyTest(TestCommand):
 readme = open('README.rst').read()
 history = open('HISTORY.rst').read().replace('.. :changelog:', '')
 
-requirements = [x.strip() for x in open('requirements.txt')]
 
 test_requirements = ['sphinx']  # added to requirements. travis doesn't seem to care
 
@@ -44,7 +43,6 @@ setup(
     packages=find_packages(exclude='devp2p.tests'),
     package_dir={'devp2p': 'devp2p'},
     include_package_data=True,
-    install_requires=requirements,
     license="BSD",
     zip_safe=False,
     keywords='devp2p',
