@@ -3,6 +3,9 @@ from devp2p import kademlia
 from devp2p import crypto
 from devp2p.app import BaseApp
 import gevent
+import random
+
+random.seed(42)
 
 ###############################
 
@@ -231,7 +234,7 @@ def main():
 
     nb = 'enode://1976e20d6ec2de2dd4df34d8e949994dc333da58c967c62ca84b4d545d3305942207565153e94367f5d571ef79ce6da93c5258e88ca14788c96fbbac40f4a4c7@52.0.216.64:30303'
 
-    node_uri = go_bootstrap
+    node_uri = cpp_bootstrap
 
     r_node = discovery.Node.from_uri(node_uri)
     print "remote node is", r_node
@@ -243,7 +246,10 @@ def main():
 
     gevent.sleep(2.)
     print "TEST FIND_NODE"
-    proto.find_node(this_node.id)
+    for i in range(10):
+        nodeid = random.randint(0, kademlia.k_max_node_id)
+        assert isinstance(nodeid, type(this_node.id))
+        proto.find_node(nodeid)
     gevent.sleep(1.)
 
     pinged = lambda: set(n for t, n, r in proto._expected_pongs.values())

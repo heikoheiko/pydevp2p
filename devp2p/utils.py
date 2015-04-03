@@ -63,6 +63,6 @@ def host_port_pubkey_from_uri(uri):  # FIXME pubkey will be nodeid
     return ip, port, pubkey_hex.decode('hex')
 
 
-def host_port_pubkey_to_uri(self, host, port, pubkey):
+def host_port_pubkey_to_uri(host, port, pubkey):
     return '%s%s@%s:%d' % (node_uri_scheme, pubkey.encode('hex'),
                            host, port)
