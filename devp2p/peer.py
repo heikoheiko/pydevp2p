@@ -14,7 +14,7 @@ log = slogging.get_logger('peer')
 class Peer(gevent.Greenlet):
 
     remote_node = None
-    remote_client_version = None
+    remote_client_version = ''
 
     def __init__(self, peermanager, connection, remote_pubkey=None):  # FIXME node vs remote_pubkey
         super(Peer, self).__init__()
@@ -36,7 +36,7 @@ class Peer(gevent.Greenlet):
         self.connect_service(self.peermanager)
 
     def __repr__(self):
-        return '<Peer(%r) thread=%r>' % (self.connection.getpeername(), id(gevent.getcurrent()))
+        return '<Peer%r %s>' % (self.connection.getpeername(), self.remote_client_version)
 
     @property
     def ip_port(self):
@@ -63,6 +63,8 @@ class Peer(gevent.Greenlet):
         # register in common protocols
         log.info('reveived hello', version=version,
                  client_version=client_version, capabilities=capabilities)
+        self.remote_client_version = client_version
+
         log.info('connecting services', services=self.peermanager.wired_services)
         remote_services = dict((name, version) for name, version in capabilities)
         for service in sorted(self.peermanager.wired_services, key=operator.attrgetter('name')):

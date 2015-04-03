@@ -116,6 +116,9 @@ class BaseProtocol(gevent.Greenlet):
         self._setup()
         super(BaseProtocol, self).__init__()
 
+    def __repr__(self):
+        return '<{} {}>'.format(self.__class__.__name__, self.peer)
+
     def _setup(self):
 
         # collect commands
