@@ -102,7 +102,7 @@ def connect_go():
 
 if __name__ == '__main__':
     # ethereum -loglevel 5 --bootnodes ''
-    import pyethereum.slogging
-    pyethereum.slogging.configure(config_string=':debug')
+    import ethereum.slogging
+    ethereum.slogging.configure(config_string=':debug')
     # connect_go()
     test_big_transfer()
