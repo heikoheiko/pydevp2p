@@ -39,7 +39,7 @@ install_requires = [install_requires_replacements.get(r, r) for r in install_req
 
 setup(
     name='devp2p',
-    version='0.0.3',
+    version='0.0.4',
     description='Python implementation of the Ethereum P2P stack',
     long_description=readme + '\n\n' + history,
     author='HeikoHeiko',
