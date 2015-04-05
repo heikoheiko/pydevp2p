@@ -1,5 +1,4 @@
 pyelliptic
--e git://github.com/ethereum/pyrlp@develop#egg=rlp-origin_develop
 wheel
 gevent
 tinyrpc
@@ -12,3 +11,4 @@ pytest-timeout
 coverage
 tox
 pycrypto
+https://github.com/ethereum/pyrlp/tarball/develop

@@ -32,6 +32,11 @@ history = open('HISTORY.rst').read().replace('.. :changelog:', '')
 
 test_requirements = ['sphinx']  # added to requirements. travis doesn't seem to care
 
+install_requires = set(x.strip() for x in open('requirements.txt'))
+install_requires_replacements = {
+    'https://github.com/ethereum/pyrlp/tarball/develop': 'rlp>=0.3.7'}
+install_requires = [install_requires_replacements.get(r, r) for r in install_requires]
+
 setup(
     name='devp2p',
     version='0.0.3',
@@ -43,6 +48,7 @@ setup(
     packages=find_packages(exclude='devp2p.tests'),
     package_dir={'devp2p': 'devp2p'},
     include_package_data=True,
+    install_requires=install_requires,
     license="BSD",
     zip_safe=False,
     keywords='devp2p',
