@@ -44,7 +44,7 @@ setup(
     long_description=readme + '\n\n' + history,
     author='HeikoHeiko',
     author_email='heiko@ethdev.com',
-    url='https://github.com/heikoheiko/pydevp2p',
+    url='https://github.com/ethereum/pydevp2p',
     packages=find_packages(exclude='devp2p.tests'),
     package_dir={'devp2p': 'devp2p'},
     include_package_data=True,
