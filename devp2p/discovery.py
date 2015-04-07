@@ -96,13 +96,14 @@ class Address(object):
         return Address(data[2], data[3], from_binary=True)
 
     def to_wire_enc(self):
-        return [str(self.ip), struct.pack('>H', self.port)]
+        # return [str(self.ip), struct.pack('>H', self.port)]
+        return [str(self.ip), rlp.sedes.big_endian_int.serialize(self.port)]
 
     @classmethod
     def from_wire_enc(self, data):
         assert isinstance(data, (list, tuple)) and len(data) == 2
         assert isinstance(data[0], str)
-        port = struct.unpack('>H', data[1])[0]
+        port = rlp.sedes.big_endian_int.deserialize(data[1])
         return Address(data[0], port)
 
 
@@ -190,19 +191,16 @@ class DiscoveryProtocol(kademlia.WireInterface):
     The date should be interpreted as a UNIX timestamp.
     The receiver should discard any packet whose `Expiration` value is in the past.
     """
-
+    version = 3
     expiration = 60  # let messages expire after N secondes
-
     cmd_id_map = dict(ping=1, pong=2, find_node=3, neighbours=4)
     rev_cmd_id_map = dict((v, k) for k, v in cmd_id_map.items())
 
-    encoders = dict(version=chr,
-                    cmd_id=chr,
-                    expiration=utils.ienc4)
+    encoders = dict(cmd_id=chr,
+                    expiration=rlp.sedes.big_endian_int.serialize)
 
-    decoders = dict(version=ord,
-                    cmd_id=ord,
-                    expiration=utils.idec)
+    decoders = dict(cmd_id=ord,
+                    expiration=rlp.sedes.big_endian_int.deserialize)
 
     def __init__(self, app, transport):
         self.app = app
@@ -274,7 +272,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
         # print rlp.decode(encoded_data)
         signed_data = crypto.sha3(cmd_id + encoded_data)
         signature = crypto.sign(signed_data, self.privkey)
-        assert crypto.verify(self.pubkey, signature, signed_data)
+        # assert crypto.verify(self.pubkey, signature, signed_data)
         # assert self.pubkey == crypto.ecdsa_recover(signed_data, signature)
         # assert crypto.verify(self.pubkey, signature, signed_data)
         assert len(signature) == 65
@@ -335,18 +333,19 @@ class DiscoveryProtocol(kademlia.WireInterface):
 
         PingNode packet-type: 0x01
 
-        struct PingNode
-        {
-            unsigned version = 0x1;
-            Endpoint endpoint;
-            unsigned expiration;
-        };
+        ping struct {
+            Version    uint   // must match Version
+            IP         string // our IP
+            Port       uint16 // our port
+            Expiration uint64
+        }
         """
         log.debug('>>> ping', remoteid=node)
+        version = rlp.sedes.big_endian_int.serialize(self.version)
         ip = self.app.config['p2p']['listen_host']
         port = self.app.config['p2p']['listen_port']
-        payload = Address(ip, port).to_wire_enc()
-        assert len(payload) == 2
+        payload = [version] + Address(ip, port).to_wire_enc()
+        assert len(payload) == 3
         message = self.pack(self.cmd_id_map['ping'], payload)
         self.send(node, message)
         return message[:32]  # return the MDC to identify pongs
@@ -356,12 +355,12 @@ class DiscoveryProtocol(kademlia.WireInterface):
         update ip, port in node table
         Addresses can only be learned by ping messages
         """
-        assert len(payload) == 2
-        log.debug('<<< ping', node=self.get_node(nodeid), payload=repr(payload))
-        assert len(payload[1]) == 2
-        address = Address.from_wire_enc(payload)
-        node = self.get_node(nodeid, address)
-        log.debug('<<< ping', remoteid=node, payload=repr(payload))
+        assert len(payload) == 3, (len(payload), repr(payload))
+        node = self.get_node(nodeid)
+        log.debug('<<< ping', node=node)
+        version = rlp.sedes.big_endian_int.deserialize(payload[0])
+        assert version == self.version
+        address = Address.from_wire_enc(payload[1:])  # FIXME: how to use this?
         self.kademlia.recv_ping(node, echo=mdc)
 
     def send_pong(self, node, token):
