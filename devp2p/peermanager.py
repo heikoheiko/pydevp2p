@@ -2,10 +2,11 @@ import random
 import gevent
 import socket
 from gevent.server import StreamServer
-from gevent.socket import create_connection
+from gevent.socket import create_connection, timeout
 from service import WiredService
 from protocol import BaseProtocol
 from p2p_protocol import P2PProtocol
+import kademlia
 from peer import Peer
 import crypto
 import utils
@@ -34,7 +35,9 @@ class PeerManager(WiredService):
     name = 'peermanager'
     wire_protocol = P2PProtocol
     default_config = dict(p2p=dict(privkey=crypto.mk_privkey(''),
-                                   bootstrap_nodes=[]))
+                                   bootstrap_nodes=[],
+                                   min_peers=5,
+                                   max_peers=10))
 
     def __init__(self, app):
         log.info('PeerManager init')
@@ -81,8 +84,13 @@ class PeerManager(WiredService):
         Passing the optional timeout parameter will set the timeout
         getdefaulttimeout() is default
         """
-        connection = create_connection(address)
+        try:
+            connection = create_connection(address, timeout=0.5)
+        except socket.timeout:
+            log.info('connection timeout')
+            return False
         self._start_peer(connection, address, remote_pubkey)
+        return True
 
     def _bootstrap(self):
         if not isinstance(self.config['p2p']['bootstrap_nodes'], list):  # HACK
@@ -106,7 +114,26 @@ class PeerManager(WiredService):
         self._bootstrap()
         super(PeerManager, self).start()
 
+    def num_peers(self):
+        return len([p for p in self.peers if p])
+
     def _run(self):
+        log.info('waiting for bootstrap')
+        gevent.sleep(3)
+        while True:
+            #log.info('in loop', num_peers=len(self.peers))
+            num_peers, min_peers = self.num_peers(), self.config['p2p']['min_peers']
+            routing = self.app.services.discovery.protocol.kademlia.routing
+            if num_peers < min_peers:
+                log.info('missing peers', num_peers=num_peers,
+                         min_peers=min_peers, known=len(routing))
+                nodeid = kademlia.random_nodeid()
+                neighbours = routing.neighbours(nodeid, 1)
+                node = neighbours[0]
+                log.info('connecting random', node=node)
+                self.connect((node.address.ip, node.address.port), node.pubkey)
+            gevent.sleep(1)
+
         evt = gevent.event.Event()
         evt.wait()
 

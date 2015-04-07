@@ -35,6 +35,10 @@ k_id_size = 512
 k_max_node_id = 2 ** k_id_size - 1
 
 
+def random_nodeid():
+    return random.randint(0, k_max_node_id)
+
+
 class Node(object):
 
     def __init__(self, pubkey):
