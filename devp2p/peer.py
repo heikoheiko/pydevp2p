@@ -7,6 +7,7 @@ from service import WiredService
 import multiplexer
 from muxsession import MultiplexedSession
 import slogging
+import gevent.socket
 
 log = slogging.get_logger('peer')
 
@@ -36,7 +37,11 @@ class Peer(gevent.Greenlet):
         self.connect_service(self.peermanager)
 
     def __repr__(self):
-        return '<Peer%r %s>' % (self.connection.getpeername(), self.remote_client_version)
+        try:
+            pn = self.connection.getpeername()
+        except gevent.socket.error:
+            pn = ('not ready',)
+        return '<Peer%r %s>' % (pn, self.remote_client_version)
 
     @property
     def ip_port(self):

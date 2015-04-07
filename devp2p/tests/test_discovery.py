@@ -208,8 +208,8 @@ def test_bootstrap_udp():
 def main():
     "test connecting nodes"
 
-    # exit on exception
-    gevent.get_hub().SYSTEM_ERROR += (ValueError, )
+    # stop on every unhandled exception!
+    gevent.get_hub().SYSTEM_ERROR = BaseException  # (KeyboardInterrupt, SystemExit, SystemError)
 
     app = get_app(30304, 'theapp')
     # app.config['p2p']['listen_host'] = '127.0.0.1'
@@ -247,7 +247,7 @@ def main():
     gevent.sleep(2.)
     print "TEST FIND_NODE"
     for i in range(10):
-        nodeid = random.randint(0, kademlia.k_max_node_id)
+        nodeid = kademlia.random_nodeid()
         assert isinstance(nodeid, type(this_node.id))
         proto.find_node(nodeid)
     gevent.sleep(1.)
@@ -273,6 +273,7 @@ def main():
 
 if __name__ == '__main__':
     import ethereum.slogging
+
     ethereum.slogging.configure(config_string=':debug')
     main()
 

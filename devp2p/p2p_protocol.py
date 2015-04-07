@@ -41,7 +41,7 @@ class ConnectionMonitor(gevent.Greenlet):
             self.proto.send_ping()
             now = self.last_request = time.time()
             gevent.sleep(self.ping_interval)
-            self.log.debug('latency', monitor=self, latency='%.3f' % self.latency())
+            self.log.debug('latency', peer=self.proto, latency='%.3f' % self.latency())
             if now - self.last_response > self.response_delay_threshold:
                 self.log.debug('unresponsive_peer', monitor=self)
                 self.proto.stop()
