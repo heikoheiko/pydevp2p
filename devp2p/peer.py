@@ -16,6 +16,7 @@ class Peer(gevent.Greenlet):
 
     remote_node = None
     remote_client_version = ''
+    wait_read_timeout = 0.001
 
     def __init__(self, peermanager, connection, remote_pubkey=None):  # FIXME node vs remote_pubkey
         super(Peer, self).__init__()
@@ -148,7 +149,6 @@ class Peer(gevent.Greenlet):
         and spawn a wait_read which triggers an event
 
         """
-        default_timeout = 0.01
         while True:
             # handle decoded packets
             while not self.mux.packet_queue.empty():
@@ -160,13 +160,21 @@ class Peer(gevent.Greenlet):
                 self.send(emsg)
                 timeout = 0
             else:
-                timeout = default_timeout
+                timeout = self.wait_read_timeout
             try:
                 #log.debug('polling data', peer=self, timeout=timeout)
                 gevent.socket.wait_read(self.connection.fileno(), timeout=timeout)
                 imsg = self.connection.recv(4096)
             except gevent.socket.timeout:
                 continue
+            except gevent.socket.error as e:
+                log.info('read error', errno=e.errno, reason=e.strerror)
+                if e.errno == 54: # Connection reset by peer
+                    self.stop()
+                else:
+                    raise e
+
+
             if imsg:
                 self.mux.add_message(imsg)
             else:

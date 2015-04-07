@@ -39,6 +39,8 @@ class PeerManager(WiredService):
                                    min_peers=5,
                                    max_peers=10))
 
+    connect_timeout = 0.5
+
     def __init__(self, app):
         log.info('PeerManager init')
         self.peers = []
@@ -85,9 +87,12 @@ class PeerManager(WiredService):
         getdefaulttimeout() is default
         """
         try:
-            connection = create_connection(address, timeout=0.5)
+            connection = create_connection(address, timeout=self.connect_timeout)
         except socket.timeout:
             log.info('connection timeout')
+            return False
+        except socket.error as e:
+            log.info('connection error', errno=e.errno, reason=e.strerror)
             return False
         self._start_peer(connection, address, remote_pubkey)
         return True

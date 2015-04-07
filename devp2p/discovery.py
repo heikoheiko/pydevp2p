@@ -311,7 +311,10 @@ class DiscoveryProtocol(kademlia.WireInterface):
     def receive(self, address, message):
         log.debug('<<< message', address=address)
         assert isinstance(address, Address)
-        remote_pubkey, cmd_id, payload, mdc = self.unpack(message)
+        try:
+            remote_pubkey, cmd_id, payload, mdc = self.unpack(message)
+        except PacketExpired:
+            return
         cmd = getattr(self, 'recv_' + self.rev_cmd_id_map[cmd_id])
         nodeid = remote_pubkey
         if nodeid not in self.nodes:  # set intermediary address
