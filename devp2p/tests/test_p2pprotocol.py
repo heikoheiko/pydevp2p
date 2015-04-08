@@ -8,7 +8,8 @@ from devp2p.app import BaseApp
 
 class PeerMock(object):
     packets = []
-    config = dict(p2p=dict(listen_port=3000, nodeid='\x00' * 64), client_version='devp2p 0.1.1')
+    config = dict(p2p=dict(listen_port=3000),
+                  node=dict(id='\x00' * 64), client_version='devp2p 0.1.1')
     capabilities = [('p2p', 2), ('eth', 57)]
     stopped = False
     hello_received = False
@@ -50,7 +51,7 @@ def test_protocol():
     # hello (works)
     proto.send_hello()
     hello_packet = peer.packets.pop()
-    peer.config['p2p']['nodeid'] = '\x01' * 64  # change nodeid
+    peer.config['node']['id'] = '\x01' * 64  # change nodeid
     proto._receive_hello(hello_packet)
     assert not peer.packets
     assert not peer.stopped

@@ -98,13 +98,13 @@ class P2PProtocol(BaseProtocol):
                         client_version=proto.config['client_version'],
                         capabilities=proto.peer.capabilities,
                         listen_port=proto.config['p2p']['listen_port'],
-                        nodeid=proto.config['p2p']['nodeid'],
+                        nodeid=proto.config['node']['id'],
                         )
 
         def receive(self, proto, data):
             log.debug('receive_hello', peer=proto.peer, version=data['version'])
             reasons = proto.disconnect.reason
-            if data['nodeid'] == proto.config['p2p']['nodeid']:
+            if data['nodeid'] == proto.config['node']['id']:
                 log.debug('connected myself')
                 return proto.send_disconnect(reason=reasons.connected_to_self)
             if data['version'] != proto.version:
@@ -123,7 +123,7 @@ class P2PProtocol(BaseProtocol):
                    client_version=peer.config['client_version'],
                    capabilities=peer.capabilities,
                    listen_port=peer.config['p2p']['listen_port'],
-                   nodeid=peer.config['p2p']['nodeid'])
+                   nodeid=peer.config['node']['id'])
         payload = cls.hello.encode_payload(res)
         return Packet(cls.protocol_id, cls.hello.cmd_id, payload=payload)
 

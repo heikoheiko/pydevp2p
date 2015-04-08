@@ -6,6 +6,7 @@ from gevent.socket import create_connection, timeout
 from service import WiredService
 from protocol import BaseProtocol
 from p2p_protocol import P2PProtocol
+from discovery import NodeDiscovery
 import kademlia
 from peer import Peer
 import crypto
@@ -33,11 +34,14 @@ class PeerManager(WiredService):
                     connect closest node
     """
     name = 'peermanager'
+    required_services = []
     wire_protocol = P2PProtocol
-    default_config = dict(p2p=dict(privkey=crypto.mk_privkey(''),
-                                   bootstrap_nodes=[],
+    default_config = dict(p2p=dict(bootstrap_nodes=[],
                                    min_peers=5,
-                                   max_peers=10))
+                                   max_peers=10,
+                                   listen_port=30303,
+                                   listen_host='0.0.0.0'),
+                          node=dict(privkey_hex=''))
 
     connect_timeout = 0.5
 
@@ -47,8 +51,9 @@ class PeerManager(WiredService):
         WiredService.__init__(self, app)
 
         # setup nodeid based on privkey
-        if 'nodeid' not in self.config['p2p']:
-            self.config['p2p']['nodeid'] = crypto.privtopub(self.config['p2p']['privkey'])
+        if 'id' not in self.config['p2p']:
+            self.config['node']['id'] = crypto.privtopub(
+                self.config['node']['privkey_hex'].decode('hex'))
 
     def on_hello_received(self, p2p_proto, data):
         log.debug('hello_received', peer=p2p_proto.peer)
@@ -97,10 +102,8 @@ class PeerManager(WiredService):
         self._start_peer(connection, address, remote_pubkey)
         return True
 
-    def _bootstrap(self):
-        if not isinstance(self.config['p2p']['bootstrap_nodes'], list):  # HACK
-            self.config['p2p']['bootstrap_nodes'] = [self.config['p2p']['bootstrap_nodes']]
-        for uri in self.config['p2p']['bootstrap_nodes']:
+    def _bootstrap(self, bootstrap_nodes=[]):
+        for uri in bootstrap_nodes:
             ip, port, pubkey = utils.host_port_pubkey_from_uri(uri)
             log.info('connecting bootstrap server', uri=uri)
             try:

@@ -9,22 +9,11 @@ log = get_logger('app')
 class BaseApp(object):
 
     client_version = 'pydevp2p 0.1.1'
-    default_config = dict(client_version=client_version)
+    default_config = dict(client_version=client_version, deactivated_services=[])
 
     def __init__(self, config=default_config):
-        self.config = utils.update_with_defaults(config, self.default_config)
+        self.config = utils.update_config_with_defaults(config, self.default_config)
         self.services = IterableUserDict()
-        self._prepare_config()
-
-    def _prepare_config(self):
-        def _with_dict(d):
-            "recursively search and decode hex encoded data"
-            for k, v in d.items():
-                if k.endswith('_hex'):
-                    d[k[:-len('_hex')]] = v.decode('hex')
-                if isinstance(v, dict):
-                    _with_dict(v)
-        _with_dict(self.config)
 
     def register_service(self, service):
         """
@@ -79,12 +68,13 @@ p2p:
 
     listen_host: 0.0.0.0
     listen_port: 30303
+node:
     privkey_hex: 65462b0520ef7d3df61b9992ed3bea0c56ead753be7c8b3614e0ce01e4cac41b
     """
     if len(sys.argv) == 1:
         config = yaml.load(io.BytesIO(sample_config))
-        pubkey = crypto.privtopub(config['p2p']['privkey_hex'].decode('hex'))
-        config['p2p']['node_id'] = crypto.sha3(pubkey)
+        pubkey = crypto.privtopub(config['node']['privkey_hex'].decode('hex'))
+        config['node']['id'] = crypto.sha3(pubkey)
     else:
         fn = sys.argv[1]
         log.info('loading config from', fn=fn)

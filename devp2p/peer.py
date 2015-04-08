@@ -28,7 +28,7 @@ class Peer(gevent.Greenlet):
         log.debug('peer init', peer=self)
 
         # create multiplexed encrypted session
-        privkey = self.config['p2p']['privkey']
+        privkey = self.config['node']['privkey_hex'].decode('hex')
         hello_packet = P2PProtocol.get_hello_packet(self)
         self.mux = MultiplexedSession(privkey, hello_packet,
                                       token_by_pubkey=dict(), remote_pubkey=remote_pubkey)

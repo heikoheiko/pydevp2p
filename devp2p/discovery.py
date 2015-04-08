@@ -4,7 +4,6 @@ https://github.com/ethereum/go-ethereum/wiki/RLPx-----Node-Discovery-Protocol
 
 """
 import time
-import struct
 import gevent
 import gevent.socket
 from devp2p import crypto
@@ -63,7 +62,7 @@ class Address(object):
         return dict(ip=self.ip, port=self.port)
 
     def to_binary(self):
-        return list((self._ip.packed, struct.pack('>H', self.port)))
+        return list((self._ip.packed, utils.ienc(self.port)))
 
     @classmethod
     def from_binary(self, ip, port):
@@ -81,7 +80,7 @@ class Address(object):
         """
         transport = 6
         r = [utils.ienc(self._ip.version), utils.ienc(transport)]
-        r += [self._ip.packed, struct.pack('>H', self.port)]
+        r += [self._ip.packed, utils.ienc(self.port)]
         return r
 
     @classmethod
@@ -92,7 +91,6 @@ class Address(object):
         transport = utils.idec(data[1])
         assert transport == 6
         assert len(data[2]) == {4: 4, 6: 16}[version]
-        assert len(data[3]) == 2
         return Address(data[2], data[3], from_binary=True)
 
     def to_wire_enc(self):
@@ -205,7 +203,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
     def __init__(self, app, transport):
         self.app = app
         self.transport = transport
-        self.privkey = app.config['p2p']['privkey_hex'].decode('hex')
+        self.privkey = app.config['node']['privkey_hex'].decode('hex')
         self.pubkey = crypto.privtopub(self.privkey)
         self.nodes = dict()   # nodeid->Node,  fixme should be loaded
         this_node = Node(self.pubkey, self.transport.address)
@@ -345,8 +343,8 @@ class DiscoveryProtocol(kademlia.WireInterface):
         """
         log.debug('>>> ping', remoteid=node)
         version = rlp.sedes.big_endian_int.serialize(self.version)
-        ip = self.app.config['p2p']['listen_host']
-        port = self.app.config['p2p']['listen_port']
+        ip = self.app.config['discovery']['listen_host']    # FIXME: P2P or discovery?
+        port = self.app.config['discovery']['listen_port']
         payload = [version] + Address(ip, port).to_wire_enc()
         assert len(payload) == 3
         message = self.pack(self.cmd_id_map['ping'], payload)
@@ -475,8 +473,16 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
     Persist the list of known nodes with their reputation
     """
 
+    cpp_bootstrap = 'enode://24f904a876975ab5c7acbedc8ec26e6f7559b527c073c6e822049fee4df78f2e9c74840587355a068f2cdb36942679f7a377a6d8c5713ccf40b1d4b99046bba0@5.1.83.226:30303'
+    bootstrap_nodes = [cpp_bootstrap]
+
     name = 'discovery'
     server = None  # will be set to DatagramServer
+    default_config = dict(discovery=dict(listen_port=30303,
+                                         listen_host='0.0.0.0',
+                                         bootstrap_nodes=bootstrap_nodes
+                                         ),
+                          node=dict(privkey_hex=''))
 
     def __init__(self, app):
         BaseService.__init__(self, app)
@@ -486,8 +492,8 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
 
     @property
     def address(self):
-        ip = self.app.config['p2p']['listen_host']
-        port = self.app.config['p2p']['listen_port']
+        ip = self.app.config['discovery']['listen_host']
+        port = self.app.config['discovery']['listen_port']
         return Address(ip, port)
 
     # def _send(self, address, message):
@@ -516,15 +522,15 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
     def start(self):
         log.info('starting discovery')
         # start a listening server
-        ip = self.app.config['p2p']['listen_host']
-        port = self.app.config['p2p']['listen_port']
+        ip = self.app.config['discovery']['listen_host']
+        port = self.app.config['discovery']['listen_port']
         log.info('starting listener', port=port, host=ip)
         self.server = DatagramServer((ip, port), handle=self._handle_packet)
         self.server.start()
         super(NodeDiscovery, self).start()
 
         # bootstap
-        nodes = [Node.from_uri(x) for x in self.app.config['p2p']['bootstrap_nodes']]
+        nodes = [Node.from_uri(x) for x in self.app.config['discovery']['bootstrap_nodes']]
         if nodes:
             self.protocol.kademlia.bootstrap(nodes)
 
