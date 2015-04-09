@@ -133,9 +133,14 @@ class Peer(gevent.Greenlet):
 
     def send(self, data):
         if data:
-            #log.debug('send', size=len(data))
-            self.connection.sendall(data)  # check if gevent chunkes and switches contexts
-            #log.debug('send sent', size=len(data))
+            try:
+                self.connection.sendall(data)  # check if gevent chunkes and switches contexts
+            except gevent.socket.error as e:
+                log.info('write error', errno=e.errno, reason=e.strerror)
+                if e.errno == 32:  # Broken pipe
+                    self.stop()
+                else:
+                    raise e
 
     def _run(self):
         """
@@ -169,11 +174,10 @@ class Peer(gevent.Greenlet):
                 continue
             except gevent.socket.error as e:
                 log.info('read error', errno=e.errno, reason=e.strerror)
-                if e.errno == 54: # Connection reset by peer
+                if e.errno == 54:  # Connection reset by peer
                     self.stop()
                 else:
                     raise e
-
 
             if imsg:
                 self.mux.add_message(imsg)
