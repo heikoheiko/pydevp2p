@@ -11,7 +11,7 @@ class ConnectionMonitor(gevent.Greenlet):
 
     "monitors the connection by sending pings and checking pongs"
     ping_interval = 15.
-    response_delay_threshold = 2.
+    response_delay_threshold = 120.  # FIXME, apply msg takes too long
     max_samples = 1000
     log = slogging.get_logger('p2p.ctxmonitor')
 
