@@ -169,6 +169,7 @@ class BaseProtocol(gevent.Greenlet):
         self.peer.send_packet(packet)
 
     def start(self):
+        log.debug('starting', proto=self)
         super(BaseProtocol, self).start()
         self.service.on_wire_protocol_start(self)
 
@@ -176,5 +177,6 @@ class BaseProtocol(gevent.Greenlet):
         pass
 
     def stop(self):
+        log.debug('stopping', proto=self)
         self.service.on_wire_protocol_stop(self)
         super(BaseProtocol, self).kill()

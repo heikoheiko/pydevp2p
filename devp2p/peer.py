@@ -173,7 +173,7 @@ class Peer(gevent.Greenlet):
             except gevent.socket.timeout:
                 continue
             except gevent.socket.error as e:
-                log.info('read error', errno=e.errno, reason=e.strerror)
+                log.info('read error', errno=e.errno, reason=e.strerror, peer=self)
                 if e.errno in(54, 60):  # (Connection reset by peer, timeout)
                     self.stop()
                 else:
@@ -187,7 +187,7 @@ class Peer(gevent.Greenlet):
                 break
 
     def stop(self):
-        log.debug('stopped', thread=gevent.getcurrent())
+        log.debug('stopped', peer=self)
         for p in self.protocols.values():
             p.stop()
         self.peermanager.peers.remove(self)

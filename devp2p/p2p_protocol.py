@@ -47,6 +47,9 @@ class ConnectionMonitor(gevent.Greenlet):
                 self.proto.stop()
                 self.kill()
 
+    def stop(self):
+        self.log.debug('stopped', monitor=self)
+        self.kill()
 
 ########################################
 
@@ -72,6 +75,10 @@ class P2PProtocol(BaseProtocol):
         assert callable(peer.receive_hello)
         super(P2PProtocol, self).__init__(peer, service)
         self.monitor = ConnectionMonitor(self)
+
+    def stop(self):
+        self.monitor.stop()
+        super(P2PProtocol, self).stop()
 
     class ping(BaseProtocol.command):
         cmd_id = 2
