@@ -416,7 +416,7 @@ class KademliaProtocol(object):
             else:
                 for key in self._expected_pongs:
                     if key.endswith(node.pubkey):
-                        log.debug('waiting for ping form node, but echo mismatch', node=node,
+                        log.debug('waiting for ping from node, but echo mismatch', node=node,
                                   expected_echo=key[:len(node.pubkey)][:8].encode('hex'),
                                   received_echo=pingid[:len(node.pubkey)][:8].encode('hex'))
             return
@@ -503,8 +503,10 @@ class KademliaProtocol(object):
         "udp addresses determined by socket address of revd Ping packets"  # ok
         "tcp addresses determined by contents of Ping packet"  # not yet
         assert isinstance(remote, Node)
-        assert remote != self.this_node
         log.debug('recv ping', remote=remote, local=self.this_node)
+        if remote == self.this_node:
+            log.warn('recv ping from self?!')
+            return
         self.update(remote)
         self.wire.send_pong(remote, echo)
 

@@ -206,8 +206,8 @@ class DiscoveryProtocol(kademlia.WireInterface):
         self.privkey = app.config['node']['privkey_hex'].decode('hex')
         self.pubkey = crypto.privtopub(self.privkey)
         self.nodes = dict()   # nodeid->Node,  fixme should be loaded
-        this_node = Node(self.pubkey, self.transport.address)
-        self.kademlia = KademliaProtocolAdapter(this_node, wire=self)
+        self.this_node = Node(self.pubkey, self.transport.address)
+        self.kademlia = KademliaProtocolAdapter(self.this_node, wire=self)
 
     def get_node(self, nodeid, address=None):
         "return node or create new, update address if supplied"
@@ -341,6 +341,7 @@ class DiscoveryProtocol(kademlia.WireInterface):
             Expiration uint64
         }
         """
+        assert node != self.this_node
         log.debug('>>> ping', remoteid=node)
         version = rlp.sedes.big_endian_int.serialize(self.version)
         ip = self.app.config['discovery']['listen_host']    # FIXME: P2P or discovery?
