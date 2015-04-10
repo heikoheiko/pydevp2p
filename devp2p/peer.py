@@ -174,7 +174,7 @@ class Peer(gevent.Greenlet):
                 continue
             except gevent.socket.error as e:
                 log.info('read error', errno=e.errno, reason=e.strerror)
-                if e.errno == 54:  # Connection reset by peer
+                if e.errno in(54, 60):  # (Connection reset by peer, timeout)
                     self.stop()
                 else:
                     raise e

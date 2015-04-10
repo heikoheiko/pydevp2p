@@ -159,7 +159,11 @@ class BaseProtocol(gevent.Greenlet):
     def receive_packet(self, packet):
         cmd_name = self.cmd_by_id[packet.cmd_id]
         cmd = getattr(self, '_receive_' + cmd_name)
-        cmd(packet)
+        try:
+            cmd(packet)
+        except ProtocolError as e:
+            log.warn('protocol exception, stopping', error=e)
+            self.stop()
 
     def send_packet(self, packet):
         self.peer.send_packet(packet)
