@@ -8,6 +8,7 @@ import multiplexer
 from muxsession import MultiplexedSession
 import slogging
 import gevent.socket
+import rlpxcipher
 
 log = slogging.get_logger('peer')
 
@@ -17,6 +18,7 @@ class Peer(gevent.Greenlet):
     remote_node = None
     remote_client_version = ''
     wait_read_timeout = 0.001
+    is_stopped = False
 
     def __init__(self, peermanager, connection, remote_pubkey=None):  # FIXME node vs remote_pubkey
         super(Peer, self).__init__()
@@ -180,15 +182,22 @@ class Peer(gevent.Greenlet):
                     raise e
 
             if imsg:
-                self.mux.add_message(imsg)
+                try:
+                    self.mux.add_message(imsg)
+                except rlpxcipher.RLPxSessionError as e:
+                    log.debug('rlpx serssion error', peer=self)
+                    self.stop()
+                    break
             else:
                 log.debug('loop_socket.not_data', peer=self)
                 self.stop()
                 break
 
     def stop(self):
-        log.debug('stopped', peer=self)
-        for p in self.protocols.values():
-            p.stop()
-        self.peermanager.peers.remove(self)
-        self.kill()
+        if not self.is_stopped:
+            self.is_stopped = True
+            log.debug('stopped', peer=self)
+            for p in self.protocols.values():
+                p.stop()
+            self.peermanager.peers.remove(self)
+            self.kill()

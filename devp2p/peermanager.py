@@ -94,7 +94,7 @@ class PeerManager(WiredService):
         try:
             connection = create_connection(address, timeout=self.connect_timeout)
         except socket.timeout:
-            log.info('connection timeout')
+            log.info('connection timeout', address=address, timeout=self.connect_timeout)
             return False
         except socket.error as e:
             log.info('connection error', errno=e.errno, reason=e.strerror)
