@@ -406,7 +406,8 @@ class DiscoveryProtocol(kademlia.WireInterface):
         };
         """
         assert isinstance(target_node_id, long)
-        target_node_id = utils.int_to_big_endian(target_node_id)
+        target_node_id = utils.int_to_big_endian(target_node_id).rjust(kademlia.k_id_size / 8,
+                                                                    '\0')
         assert len(target_node_id) == kademlia.k_id_size / 8
         log.debug('>>> find_node', remoteid=node)
         message = self.pack(self.cmd_id_map['find_node'], [target_node_id])
