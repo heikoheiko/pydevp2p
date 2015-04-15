@@ -46,9 +46,20 @@ class Peer(gevent.Greenlet):
             pn = ('not ready',)
         return '<Peer%r %s>' % (pn, self.remote_client_version)
 
+    def report_error(self, reason):
+        try:
+            ip_port = self.ip_port
+        except:
+            ip_port = 'ip_port not available fixme'
+        self.peermanager.errors.add(ip_port, reason, self.remote_client_version)
+
     @property
     def ip_port(self):
-        return self.connection.getpeername()
+        try:
+            return self.connection.getpeername()
+        except Exception as e:
+            log.debug('ip_port failed')
+            raise e
 
     def connect_service(self, service):
         assert isinstance(service, WiredService)
@@ -85,6 +96,7 @@ class Peer(gevent.Greenlet):
                 else:
                     log.info('wrong version', service=proto.name, local_version=proto.version,
                              remote_version=remote_services[proto.name])
+                    self.report_error('wrong version')
 
     @property
     def capabilities(self):
@@ -139,7 +151,9 @@ class Peer(gevent.Greenlet):
                 self.connection.sendall(data)  # check if gevent chunkes and switches contexts
             except gevent.socket.error as e:
                 log.info('write error', errno=e.errno, reason=e.strerror)
+                self.report_error('write error')
                 if e.errno == 32:  # Broken pipe
+                    self.report_error('broken pipe')
                     self.stop()
                 else:
                     raise e
@@ -176,6 +190,7 @@ class Peer(gevent.Greenlet):
                 continue
             except gevent.socket.error as e:
                 log.info('read error', errno=e.errno, reason=e.strerror, peer=self)
+                self.report_error('network error %s' % e.strerror)
                 if e.errno in(54, 60):  # (Connection reset by peer, timeout)
                     self.stop()
                 else:
@@ -186,10 +201,12 @@ class Peer(gevent.Greenlet):
                     self.mux.add_message(imsg)
                 except rlpxcipher.RLPxSessionError as e:
                     log.debug('rlpx serssion error', peer=self)
+                    self.report_error('rlpx serssion error')
                     self.stop()
                     break
             else:
                 log.debug('loop_socket.not_data', peer=self)
+                self.report_error('no data on socket')
                 self.stop()
                 break
 

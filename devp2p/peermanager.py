@@ -1,6 +1,7 @@
 import random
 import gevent
 import socket
+import atexit
 from gevent.server import StreamServer
 from gevent.socket import create_connection, timeout
 from service import WiredService
@@ -48,6 +49,7 @@ class PeerManager(WiredService):
     def __init__(self, app):
         log.info('PeerManager init')
         self.peers = []
+        self.errors = PeerErrors()
         WiredService.__init__(self, app)
 
         # setup nodeid based on privkey
@@ -95,9 +97,11 @@ class PeerManager(WiredService):
             connection = create_connection(address, timeout=self.connect_timeout)
         except socket.timeout:
             log.info('connection timeout', address=address, timeout=self.connect_timeout)
+            self.errors.add(address, 'connection timeout')
             return False
         except socket.error as e:
             log.info('connection error', errno=e.errno, reason=e.strerror)
+            self.errors.add(address, 'connection error')
             return False
         self._start_peer(connection, address, remote_pubkey)
         return True
@@ -156,3 +160,23 @@ class PeerManager(WiredService):
         self.server.stop()
         for peer in self.peers:
             peer.stop()
+
+
+class PeerErrors(object):
+
+    def __init__(self):
+        self.errors = dict()  # node: ['error',]
+        self.client_versions = dict() # address: client_version
+
+        def report():
+            for k, v in self.errors.items():
+                print k, self.client_versions.get(k, '')
+                for e in v:
+                    print '\t', e
+
+        atexit.register(report)
+
+    def add(self, address, error, client_version=''):
+        self.errors.setdefault(address, []).append(error)
+        if client_version:
+            self.client_versions[address] = client_version

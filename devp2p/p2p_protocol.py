@@ -44,6 +44,7 @@ class ConnectionMonitor(gevent.Greenlet):
             self.log.debug('latency', peer=self.proto, latency='%.3f' % self.latency())
             if now - self.last_response > self.response_delay_threshold:
                 self.log.debug('unresponsive_peer', monitor=self)
+                self.proto.peer.report_error('not responding to ping')
                 self.proto.stop()
                 self.kill()
 
@@ -162,10 +163,13 @@ class P2PProtocol(BaseProtocol):
         def create(self, proto, reason=reason.client_quitting):
             assert self.reason_name(reason)
             log.debug('send_disconnect', peer=proto.peer, reason=self.reason_name(reason))
+            proto.peer.report_error('sending disconnect %s' % self.reason_name(reason))
+
             # proto.peer.stop()  # FIXME
             return dict(reason=reason)
 
         def receive(self, proto, data):
             log.debug('receive_disconnect', peer=proto.peer,
                       reason=self.reason_name(data['reason']))
+            proto.peer.report_error('disconnected %s' % self.reason_name(data['reason']))
             proto.peer.stop()
