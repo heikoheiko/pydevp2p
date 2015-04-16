@@ -15,7 +15,6 @@ log = slogging.get_logger('peer')
 
 class Peer(gevent.Greenlet):
 
-    remote_node = None
     remote_client_version = ''
     wait_read_timeout = 0.001
     is_stopped = False
@@ -26,7 +25,6 @@ class Peer(gevent.Greenlet):
         self.connection = connection
         self.config = peermanager.config
         self.protocols = OrderedDict()
-
         log.debug('peer init', peer=self)
 
         # create multiplexed encrypted session
@@ -38,6 +36,12 @@ class Peer(gevent.Greenlet):
         # register p2p protocol
         assert issubclass(self.peermanager.wire_protocol, P2PProtocol)
         self.connect_service(self.peermanager)
+
+    @property
+    def remote_pubkey(self):
+        "if peer is responder, then the remote_pubkey will not be available"
+        "before the first packet is received"
+        return self.mux.remote_pubkey
 
     def __repr__(self):
         try:

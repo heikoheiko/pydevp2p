@@ -149,6 +149,8 @@ class PeerManager(WiredService):
                 local_pubkey = crypto.privtopub(self.config['node']['privkey_hex'].decode('hex'))
                 if node.pubkey == local_pubkey:
                     continue
+                if node.pubkey in [p.remote_pubkey for p in self.peers]:
+                    continue
                 self.connect((node.address.ip, node.address.port), node.pubkey)
             gevent.sleep(loop_delay)
 
