@@ -175,7 +175,7 @@ class PeerErrors(object):
 
     def __init__(self):
         self.errors = dict()  # node: ['error',]
-        self.client_versions = dict() # address: client_version
+        self.client_versions = dict()  # address: client_version
 
         def report():
             for k, v in self.errors.items():

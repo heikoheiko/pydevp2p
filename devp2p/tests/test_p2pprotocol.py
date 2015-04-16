@@ -27,6 +27,9 @@ class PeerMock(object):
     def stop(self):
         self.stopped = True
 
+    def report_error(self, reason):
+        pass
+
 
 def test_protocol():
     peer = PeerMock()
