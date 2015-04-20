@@ -40,7 +40,6 @@ class BaseProtocol(gevent.Greenlet):
     name = ''
     version = 0
     max_cmd_id = 0  # reserved cmd space
-    is_stopped = False
 
     class command(object):
 
@@ -112,6 +111,7 @@ class BaseProtocol(gevent.Greenlet):
         "hint: implement peer_started notifcation of associated protocol here"
         assert isinstance(service, WiredService)
         assert callable(peer.send_packet)
+        self.is_stopped = False
         self.peer = peer
         self.service = service
         self._setup()

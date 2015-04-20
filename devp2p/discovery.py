@@ -544,7 +544,7 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
     def stop(self):
         log.info('stopping discovery')
         self.server.stop()
-
+        super(NodeDiscovery, self).stop()
 
 if __name__ == '__main__':
     pass

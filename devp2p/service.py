@@ -22,6 +22,7 @@ class BaseService(Greenlet):
 
     def __init__(self, app):
         Greenlet.__init__(self)
+        self.is_stopped = False
         self.app = app
         self.config = utils.update_config_with_defaults(app.config, self.default_config)
         available_service = [s.__class__ for s in self.app.services.values()]
@@ -32,6 +33,7 @@ class BaseService(Greenlet):
         Greenlet.start(self)
 
     def stop(self):
+        self.is_stopped = True
         Greenlet.kill(self)
 
     @classmethod

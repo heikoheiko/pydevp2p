@@ -17,10 +17,10 @@ class Peer(gevent.Greenlet):
 
     remote_client_version = ''
     wait_read_timeout = 0.001
-    is_stopped = False
 
     def __init__(self, peermanager, connection, remote_pubkey=None):  # FIXME node vs remote_pubkey
         super(Peer, self).__init__()
+        self.is_stopped = False
         self.peermanager = peermanager
         self.connection = connection
         self.config = peermanager.config
@@ -175,7 +175,7 @@ class Peer(gevent.Greenlet):
         and spawn a wait_read which triggers an event
 
         """
-        while True:
+        while not self.is_stopped:
             # handle decoded packets
             while not self.mux.packet_queue.empty():
                 self._handle_packet(self.mux.get_packet())
