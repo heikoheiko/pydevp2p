@@ -40,6 +40,7 @@ class BaseProtocol(gevent.Greenlet):
     name = ''
     version = 0
     max_cmd_id = 0  # reserved cmd space
+    is_stopped = False
 
     class command(object):
 
@@ -178,5 +179,6 @@ class BaseProtocol(gevent.Greenlet):
 
     def stop(self):
         log.debug('stopping', proto=self)
+        self.is_stopped = True
         self.service.on_wire_protocol_stop(self)
         super(BaseProtocol, self).kill()
