@@ -138,7 +138,7 @@ class PeerManager(WiredService):
 
     def _run(self):
         log.info('waiting for bootstrap')
-        gevent.sleep(1)
+        gevent.sleep(3)
         loop_delay = 1
         while True:
             #log.info('in loop', num_peers=len(self.peers))
