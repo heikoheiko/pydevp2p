@@ -68,11 +68,6 @@ class MultiplexedSession(multiplexer.Multiplexer):
         for packet in self.decode(msg):
             self.packet_queue.put(packet)
 
-    def get_message(self):
-        "gets a message from the message queue"
-        if not self.message_queue.empty():
-            return self.message_queue.get_nowait()
-
     def add_packet(self, packet):
         "encodes a packet and adds the message(s) to the msg queue"
         assert isinstance(packet, multiplexer.Packet)
@@ -80,8 +75,3 @@ class MultiplexedSession(multiplexer.Multiplexer):
         multiplexer.Multiplexer.add_packet(self, packet)
         for f in self.pop_all_frames():
             self.message_queue.put(f.as_bytes())
-
-    def get_packet(self):
-        "gets a packet from the packet queue"
-        if not self.packet_queue.empty():
-            return self.packet_queue.get_nowait()
