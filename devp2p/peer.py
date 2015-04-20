@@ -48,7 +48,8 @@ class Peer(gevent.Greenlet):
             pn = self.connection.getpeername()
         except gevent.socket.error:
             pn = ('not ready',)
-        return '<Peer%r %s>' % (pn, self.remote_client_version)
+        # return '<Peer%r %s>' % (pn, self.remote_client_version)
+        return '<Peer%r>' % repr(pn)
 
     def report_error(self, reason):
         try:

@@ -3,13 +3,14 @@ from service import BaseService
 from slogging import get_logger
 import utils
 import crypto
+from devp2p import __version__
 log = get_logger('app')
 
 
 class BaseApp(object):
 
-    client_version = 'pydevp2p 0.1.1'
-    default_config = dict(client_version=client_version, deactivated_services=[])
+    default_config = dict(client_version='pydevp2p {}'.format(__version__),
+                          deactivated_services=[])
 
     def __init__(self, config=default_config):
         self.config = utils.update_config_with_defaults(config, self.default_config)

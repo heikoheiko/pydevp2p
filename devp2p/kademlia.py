@@ -21,7 +21,7 @@ import operator
 import time
 import random
 import slogging
-log = slogging.get_logger('kademlia')
+log = slogging.get_logger('p2p.discovery.kademlia')
 
 
 k_b = 8  # 8 bits per hop
