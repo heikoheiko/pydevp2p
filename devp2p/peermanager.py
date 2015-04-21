@@ -66,20 +66,23 @@ class PeerManager(WiredService):
         return [s for s in self.app.services.values() if isinstance(s, WiredService)]
 
     def broadcast(self, protocol, command_name, args=[], kargs={},
-                  num_peers=None, exclude_protos=[]):
+                  num_peers=None, exclude_peers=[]):
         log.debug('broadcasting', protcol=protocol, command=command_name,
-                  num_peers=num_peers, exclude_protos=exclude_protos)
+                  num_peers=num_peers, exclude_peers=exclude_peers)
         assert num_peers is None or num_peers > 0
         peers_with_proto = [p for p in self.peers
-                            if protocol in p.protocols and p not in exclude_protos]
+                            if protocol in p.protocols and p not in exclude_peers]
 
         if not peers_with_proto:
             log.debug('no peers with proto found', protos=[p.protocols for p in self.peers])
         num_peers = num_peers or len(peers_with_proto)
-        for p in random.sample(peers_with_proto, min(num_peers, len(peers_with_proto))):
-            log.debug('broadcasting to', proto=p.protocols[protocol])
-            func = getattr(p.protocols[protocol], 'send_' + command_name)
+        for peer in random.sample(peers_with_proto, min(num_peers, len(peers_with_proto))):
+            log.debug('broadcasting to', proto=peer.protocols[protocol])
+            func = getattr(peer.protocols[protocol], 'send_' + command_name)
             func(*args, **kargs)
+            # sequential uploads
+            # wait until the message is out, before initiating next
+            peer.safe_to_read.wait()
 
     def _start_peer(self, connection, address, remote_pubkey=None):
         log.debug('new connect', connection=connection)
