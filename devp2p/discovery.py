@@ -480,7 +480,10 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
     """
 
     cpp_bootstrap = 'enode://24f904a876975ab5c7acbedc8ec26e6f7559b527c073c6e822049fee4df78f2e9c74840587355a068f2cdb36942679f7a377a6d8c5713ccf40b1d4b99046bba0@5.1.83.226:30303'
-    bootstrap_nodes = [cpp_bootstrap]
+
+    go_bootstrap = 'enode://6cdd090303f394a1cac34ecc9f7cda18127eafa2a3a06de39f6d920b0e583e062a7362097c7c65ee490a758b442acd5c80c6fce4b148c6a391e946b45131365b@54.169.166.226:30303'
+
+    bootstrap_nodes = [cpp_bootstrap, go_bootstrap]
 
     name = 'discovery'
     server = None  # will be set to DatagramServer
