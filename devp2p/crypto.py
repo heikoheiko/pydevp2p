@@ -178,7 +178,8 @@ class ECCx(pyelliptic.ECC):
         [where R = r*G, and recipientPublic = recipientPrivate*G]
 
         """
-        assert data[0] == chr(0x04)
+        if data[0] != chr(0x04):
+            raise RuntimeError("wrong ecies header")
 
         #  1) generate shared-secret = kdf( ecdhAgree(myPrivKey, msg[1:65]) )
         _shared = data[1:1 + 64]

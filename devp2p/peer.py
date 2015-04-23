@@ -166,12 +166,8 @@ class Peer(gevent.Greenlet):
             self.connection.sendall(data)  # check if gevent chunkes and switches contexts
         except gevent.socket.error as e:
             log.info('write error', errno=e.errno, reason=e.strerror)
-            self.report_error('write error')
-            if e.errno == 32:  # Broken pipe
-                self.report_error('broken pipe')
-                self.stop()
-            else:
-                raise e
+            self.report_error('write error %r' % e.strerror)
+            self.stop()
         except gevent.socket.timeout:
             log.info('write timeout')
             self.report_error('write timeout')
@@ -199,7 +195,7 @@ class Peer(gevent.Greenlet):
             except gevent.socket.error as e:
                 log.info('read error', errno=e.errno, reason=e.strerror, peer=self)
                 self.report_error('network error %s' % e.strerror)
-                if e.errno in(54, 60):  # (Connection reset by peer, timeout)
+                if e.errno in(50, 54, 60):  # (Network down, Connection reset by peer, timeout)
                     self.stop()
                 else:
                     raise e
