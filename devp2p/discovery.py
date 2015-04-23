@@ -357,11 +357,15 @@ class DiscoveryProtocol(kademlia.WireInterface):
         update ip, port in node table
         Addresses can only be learned by ping messages
         """
-        assert len(payload) == 3, (len(payload), repr(payload))
+        if not len(payload) == 3:
+            log.error('invalid ping payload', payload=payload)
+            return
         node = self.get_node(nodeid)
         log.debug('<<< ping', node=node)
         version = rlp.sedes.big_endian_int.deserialize(payload[0])
-        assert version == self.version
+        if version != self.version:
+            log.error('wrong version', remote_version=version, expected_version=self.version)
+            return
         address = Address.from_wire_enc(payload[1:])  # FIXME: how to use this?
         self.kademlia.recv_ping(node, echo=mdc)
 
