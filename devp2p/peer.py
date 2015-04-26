@@ -91,11 +91,17 @@ class Peer(gevent.Greenlet):
         assert issubclass(protocol, BaseProtocol)
         return protocol in self.protocols
 
-    def receive_hello(self, version, client_version, capabilities, listen_port, nodeid):
+    def receive_hello(self, proto, version, client_version, capabilities, listen_port, nodeid):
         # register in common protocols
-        log.info('reveived hello', version=version,
+        log.info('received hello', version=version,
                  client_version=client_version, capabilities=capabilities)
         self.remote_client_version = client_version
+
+        # call peermanager
+        agree = self.peermanager.on_hello_received(
+            proto, version, client_version, capabilities, listen_port, nodeid)
+        if not agree:
+            return
 
         log.info('connecting services', services=self.peermanager.wired_services)
         remote_services = dict((name, version) for name, version in capabilities)
@@ -195,7 +201,8 @@ class Peer(gevent.Greenlet):
             except gevent.socket.error as e:
                 log.info('read error', errno=e.errno, reason=e.strerror, peer=self)
                 self.report_error('network error %s' % e.strerror)
-                if e.errno in(50, 54, 60):  # (Network down, Connection reset by peer, timeout)
+                if e.errno in(50, 54, 60, 65):
+                    # (Network down, Connection reset by peer, timeout, nor route to host)
                     self.stop()
                 else:
                     raise e

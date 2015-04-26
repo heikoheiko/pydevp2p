@@ -120,7 +120,7 @@ class P2PProtocol(BaseProtocol):
                           expected=proto.version, received=data['version'])
                 return proto.send_disconnect(reason=reasons.incompatibel_p2p_version)
 
-            proto.peer.receive_hello(**data)
+            proto.peer.receive_hello(proto, **data)
             # super(hello, self).receive(proto, data)
             BaseProtocol.command.receive(self, proto, data)
 
@@ -164,8 +164,7 @@ class P2PProtocol(BaseProtocol):
             assert self.reason_name(reason)
             log.debug('send_disconnect', peer=proto.peer, reason=self.reason_name(reason))
             proto.peer.report_error('sending disconnect %s' % self.reason_name(reason))
-
-            # proto.peer.stop()  # FIXME
+            proto.peer.stop()  # working?
             return dict(reason=reason)
 
         def receive(self, proto, data):

@@ -57,9 +57,13 @@ class PeerManager(WiredService):
             self.config['node']['id'] = crypto.privtopub(
                 self.config['node']['privkey_hex'].decode('hex'))
 
-    def on_hello_received(self, p2p_proto, data):
-        log.debug('hello_received', peer=p2p_proto.peer)
-        # register more protocols
+    def on_hello_received(self, proto, version, client_version, capabilities, listen_port, nodeid):
+        log.debug('hello_received', peer=proto.peer, num_peers=len(self.peers))
+        if len(self.peers) > self.config['p2p']['max_peers']:
+            log.debug('too many peers', max=self.config['p2p']['max_peers'])
+            proto.send_disconnect(proto.disconnect.reason.too_many_peers)
+            return False
+        return True
 
     @property
     def wired_services(self):
@@ -85,7 +89,7 @@ class PeerManager(WiredService):
             peer.safe_to_read.wait()
 
     def _start_peer(self, connection, address, remote_pubkey=None):
-        log.debug('new connect', connection=connection)
+        log.debug('new connect', connection=connection, incoming=bool(not remote_pubkey))
         # create peer
         peer = Peer(self, connection, remote_pubkey=remote_pubkey)
         log.debug('created new peer', peer=peer)

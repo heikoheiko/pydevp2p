@@ -208,6 +208,10 @@ class DiscoveryProtocol(kademlia.WireInterface):
         self.nodes = dict()   # nodeid->Node,  fixme should be loaded
         self.this_node = Node(self.pubkey, self.transport.address)
         self.kademlia = KademliaProtocolAdapter(self.this_node, wire=self)
+        uri = utils.host_port_pubkey_to_uri(self.app.config['discovery']['listen_host'],
+                                            self.app.config['discovery']['listen_port'],
+                                            self.pubkey)
+        log.info('starting discovery proto', enode=uri)  # FIXME external ip
 
     def get_node(self, nodeid, address=None):
         "return node or create new, update address if supplied"
@@ -516,7 +520,11 @@ class NodeDiscovery(BaseService, DiscoveryProtocolTransport):
     def send(self, address, message):
         assert isinstance(address, Address)
         log.debug('sending', size=len(message), to=address)
-        self.server.sendto(message, (address.ip, address.port))
+        try:
+            self.server.sendto(message, (address.ip, address.port))
+        except gevent.socket.error as e:
+            log.critical('udp write error', errno=e.errno, reason=e.strerror)
+            self.app.stop()
 
     def receive(self, address, message):
         assert isinstance(address, Address)
