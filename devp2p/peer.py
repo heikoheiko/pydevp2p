@@ -211,8 +211,12 @@ class Peer(gevent.Greenlet):
                 try:
                     self.mux.add_message(imsg)
                 except rlpxcipher.RLPxSessionError as e:
-                    log.debug('rlpx session error', peer=self)
+                    log.debug('rlpx session error', peer=self, error=e)
                     self.report_error('rlpx session error')
+                    self.stop()
+                except multiplexer.MultiplexerError as e:
+                    log.debug('multiplexer error', peer=self, error=e)
+                    self.report_error('multiplexer error')
                     self.stop()
             else:
                 log.debug('no data on socket', peer=self)
