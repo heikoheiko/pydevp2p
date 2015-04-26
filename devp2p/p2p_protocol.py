@@ -11,7 +11,7 @@ class ConnectionMonitor(gevent.Greenlet):
 
     "monitors the connection by sending pings and checking pongs"
     ping_interval = 15.
-    response_delay_threshold = 2.
+    response_delay_threshold = 120.  # FIXME, apply msg takes too long
     max_samples = 1000
     log = slogging.get_logger('p2p.ctxmonitor')
 
@@ -41,12 +41,16 @@ class ConnectionMonitor(gevent.Greenlet):
             self.proto.send_ping()
             now = self.last_request = time.time()
             gevent.sleep(self.ping_interval)
-            self.log.debug('latency', monitor=self, latency='%.3f' % self.latency())
+            self.log.debug('latency', peer=self.proto, latency='%.3f' % self.latency())
             if now - self.last_response > self.response_delay_threshold:
                 self.log.debug('unresponsive_peer', monitor=self)
+                self.proto.peer.report_error('not responding to ping')
                 self.proto.stop()
                 self.kill()
 
+    def stop(self):
+        self.log.debug('stopped', monitor=self)
+        self.kill()
 
 ########################################
 
@@ -73,6 +77,10 @@ class P2PProtocol(BaseProtocol):
         super(P2PProtocol, self).__init__(peer, service)
         self.monitor = ConnectionMonitor(self)
 
+    def stop(self):
+        self.monitor.stop()
+        super(P2PProtocol, self).stop()
+
     class ping(BaseProtocol.command):
         cmd_id = 2
 
@@ -98,13 +106,13 @@ class P2PProtocol(BaseProtocol):
                         client_version=proto.config['client_version'],
                         capabilities=proto.peer.capabilities,
                         listen_port=proto.config['p2p']['listen_port'],
-                        nodeid=proto.config['p2p']['nodeid'],
+                        nodeid=proto.config['node']['id'],
                         )
 
         def receive(self, proto, data):
             log.debug('receive_hello', peer=proto.peer, version=data['version'])
             reasons = proto.disconnect.reason
-            if data['nodeid'] == proto.config['p2p']['nodeid']:
+            if data['nodeid'] == proto.config['node']['id']:
                 log.debug('connected myself')
                 return proto.send_disconnect(reason=reasons.connected_to_self)
             if data['version'] != proto.version:
@@ -112,7 +120,7 @@ class P2PProtocol(BaseProtocol):
                           expected=proto.version, received=data['version'])
                 return proto.send_disconnect(reason=reasons.incompatibel_p2p_version)
 
-            proto.peer.receive_hello(**data)
+            proto.peer.receive_hello(proto, **data)
             # super(hello, self).receive(proto, data)
             BaseProtocol.command.receive(self, proto, data)
 
@@ -123,7 +131,7 @@ class P2PProtocol(BaseProtocol):
                    client_version=peer.config['client_version'],
                    capabilities=peer.capabilities,
                    listen_port=peer.config['p2p']['listen_port'],
-                   nodeid=peer.config['p2p']['nodeid'])
+                   nodeid=peer.config['node']['id'])
         payload = cls.hello.encode_payload(res)
         return Packet(cls.protocol_id, cls.hello.cmd_id, payload=payload)
 
@@ -155,10 +163,12 @@ class P2PProtocol(BaseProtocol):
         def create(self, proto, reason=reason.client_quitting):
             assert self.reason_name(reason)
             log.debug('send_disconnect', peer=proto.peer, reason=self.reason_name(reason))
-            # proto.peer.stop()  # FIXME
+            proto.peer.report_error('sending disconnect %s' % self.reason_name(reason))
+            proto.peer.stop()  # working?
             return dict(reason=reason)
 
         def receive(self, proto, data):
             log.debug('receive_disconnect', peer=proto.peer,
                       reason=self.reason_name(data['reason']))
+            proto.peer.report_error('disconnected %s' % self.reason_name(data['reason']))
             proto.peer.stop()

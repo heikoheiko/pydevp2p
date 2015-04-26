@@ -16,7 +16,7 @@ class MultiplexedSession(multiplexer.Multiplexer):
         ecc = ECCx(raw_privkey=privkey)
         self.rlpx_session = RLPxSession(
             ecc, is_initiator=bool(remote_pubkey), token_by_pubkey=token_by_pubkey)
-        self.remote_pubkey = remote_pubkey
+        self._remote_pubkey = remote_pubkey
         self.token_by_pubkey = token_by_pubkey
         multiplexer.Multiplexer.__init__(self, frame_cipher=self.rlpx_session)
         if self.is_initiator:
@@ -27,8 +27,13 @@ class MultiplexedSession(multiplexer.Multiplexer):
         # only authenticated and ready after successfully authenticated hello packet
         return self.rlpx_session.is_ready
 
+    @property
+    def remote_pubkey(self):
+        "if responder not be available until first message is received"
+        return self._remote_pubkey or self.rlpx_session.remote_pubkey
+
     def _send_init_msg(self):
-        auth_msg = self.rlpx_session.create_auth_message(self.remote_pubkey)
+        auth_msg = self.rlpx_session.create_auth_message(self._remote_pubkey)
         auth_msg_ct = self.rlpx_session.encrypt_auth_message(auth_msg)
         self.message_queue.put(auth_msg_ct)
 
@@ -63,11 +68,6 @@ class MultiplexedSession(multiplexer.Multiplexer):
         for packet in self.decode(msg):
             self.packet_queue.put(packet)
 
-    def get_message(self):
-        "gets a message from the message queue"
-        if not self.message_queue.empty():
-            return self.message_queue.get_nowait()
-
     def add_packet(self, packet):
         "encodes a packet and adds the message(s) to the msg queue"
         assert isinstance(packet, multiplexer.Packet)
@@ -75,8 +75,3 @@ class MultiplexedSession(multiplexer.Multiplexer):
         multiplexer.Multiplexer.add_packet(self, packet)
         for f in self.pop_all_frames():
             self.message_queue.put(f.as_bytes())
-
-    def get_packet(self):
-        "gets a packet from the packet queue"
-        if not self.packet_queue.empty():
-            return self.packet_queue.get_nowait()

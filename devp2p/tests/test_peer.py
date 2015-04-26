@@ -10,11 +10,11 @@ import copy
 
 
 def get_connected_apps():
-    a_config = dict(p2p=dict(listen_host='127.0.0.1', listen_port=3000,
-                             privkey_hex=crypto.sha3('a').encode('hex')))
+    a_config = dict(p2p=dict(listen_host='127.0.0.1', listen_port=3000),
+                    node=dict(privkey_hex=crypto.sha3('a').encode('hex')))
     b_config = copy.deepcopy(a_config)
     b_config['p2p']['listen_port'] = 3001
-    b_config['p2p']['privkey_hex'] = crypto.sha3('b').encode('hex')
+    b_config['node']['privkey_hex'] = crypto.sha3('b').encode('hex')
 
     a_app = BaseApp(a_config)
     peermanager.PeerManager.register_with_app(a_app)
@@ -30,7 +30,7 @@ def get_connected_apps():
     # connect
     host = b_config['p2p']['listen_host']
     port = b_config['p2p']['listen_port']
-    pubkey = crypto.privtopub(b_config['p2p']['privkey'])
+    pubkey = crypto.privtopub(b_config['node']['privkey_hex'].decode('hex'))
     a_peermgr.connect((host, port), remote_pubkey=pubkey)
 
     return a_app, b_app
@@ -83,8 +83,8 @@ def test_big_transfer():
 
 
 def connect_go():
-    a_config = dict(p2p=dict(listen_host='127.0.0.1', listen_port=3000,
-                             privkey_hex=crypto.sha3('a').encode('hex')))
+    a_config = dict(p2p=dict(listen_host='127.0.0.1', listen_port=3000),
+                    node=dict(privkey_hex=crypto.sha3('a').encode('hex')))
 
     a_app = BaseApp(a_config)
     peermanager.PeerManager.register_with_app(a_app)
@@ -102,7 +102,7 @@ def connect_go():
 
 if __name__ == '__main__':
     # ethereum -loglevel 5 --bootnodes ''
-    import pyethereum.slogging
-    pyethereum.slogging.configure(config_string=':debug')
+    import ethereum.slogging
+    ethereum.slogging.configure(config_string=':debug')
     # connect_go()
     test_big_transfer()

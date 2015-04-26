@@ -1,39 +1,14 @@
 import struct
+import rlp
 import collections
 
-
-def int_to_big_endian(integer):
-    '''convert a integer to big endian binary string'''
-    # 0 is a special case, treated same as ''
-    if integer == 0:
-        return ''
-    s = '%x' % integer
-    if len(s) & 1:
-        s = '0' + s
-    return s.decode('hex')
-
-ienc = int_to_big_endian
+ienc = int_to_big_endian = rlp.sedes.big_endian_int.serialize
 
 
-def big_endian_to_int(string):
-    '''convert a big endian binary string to integer'''
-    # '' is a special case, treated same as 0
-    s = string.encode('hex') or '0'
-    return long(s, 16)
+def big_endian_to_int(s):
+    return rlp.sedes.big_endian_int.deserialize(s.lstrip('\x00'))
+
 idec = big_endian_to_int
-
-
-def recursive_int_to_big_endian(item):
-    ''' convert all int to int_to_big_endian recursively
-    '''
-    if isinstance(item, (int, long)):
-        return ienc(item)
-    elif isinstance(item, (list, tuple)):
-        res = []
-        for item in item:
-            res.append(recursive_int_to_big_endian(item))
-        return res
-    return item
 
 
 def int_to_big_endian4(integer):
@@ -42,15 +17,6 @@ def int_to_big_endian4(integer):
 
 ienc4 = int_to_big_endian4
 
-
-def update_with_defaults(config, default_config):
-    for k, v in default_config.iteritems():
-        if isinstance(v, collections.Mapping):
-            r = update_with_defaults(config.get(k, {}), v)
-            config[k] = r
-        elif k not in config:
-            config[k] = default_config[k]
-    return config
 
 node_uri_scheme = 'enode://'
 
@@ -66,3 +32,26 @@ def host_port_pubkey_from_uri(uri):  # FIXME pubkey will be nodeid
 def host_port_pubkey_to_uri(host, port, pubkey):
     return '%s%s@%s:%d' % (node_uri_scheme, pubkey.encode('hex'),
                            host, port)
+
+
+# ###### config helpers ###############
+
+def hex_decode_config(self):
+    def _with_dict(d):
+        "recursively search and decode hex encoded data"
+        for k, v in d.items():
+            if k.endswith('_hex'):
+                d[k[:-len('_hex')]] = v.decode('hex')
+            if isinstance(v, dict):
+                _with_dict(v)
+    _with_dict(self.config)
+
+
+def update_config_with_defaults(config, default_config):
+    for k, v in default_config.iteritems():
+        if isinstance(v, collections.Mapping):
+            r = update_config_with_defaults(config.get(k, {}), v)
+            config[k] = r
+        elif k not in config:
+            config[k] = default_config[k]
+    return config

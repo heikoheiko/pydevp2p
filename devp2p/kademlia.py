@@ -21,7 +21,7 @@ import operator
 import time
 import random
 import slogging
-log = slogging.get_logger('kademlia')
+log = slogging.get_logger('p2p.discovery.kademlia')
 
 
 k_b = 8  # 8 bits per hop
@@ -33,6 +33,10 @@ k_find_concurrency = 3                   # parallel find node lookups
 k_pubkey_size = 512
 k_id_size = 512
 k_max_node_id = 2 ** k_id_size - 1
+
+
+def random_nodeid():
+    return random.randint(0, k_max_node_id)
 
 
 class Node(object):
@@ -412,7 +416,7 @@ class KademliaProtocol(object):
             else:
                 for key in self._expected_pongs:
                     if key.endswith(node.pubkey):
-                        log.debug('waiting for ping form node, but echo mismatch', node=node,
+                        log.debug('waiting for ping from node, but echo mismatch', node=node,
                                   expected_echo=key[:len(node.pubkey)][:8].encode('hex'),
                                   received_echo=pingid[:len(node.pubkey)][:8].encode('hex'))
             return
@@ -499,8 +503,10 @@ class KademliaProtocol(object):
         "udp addresses determined by socket address of revd Ping packets"  # ok
         "tcp addresses determined by contents of Ping packet"  # not yet
         assert isinstance(remote, Node)
-        assert remote != self.this_node
         log.debug('recv ping', remote=remote, local=self.this_node)
+        if remote == self.this_node:
+            log.warn('recv ping from self?!')
+            return
         self.update(remote)
         self.wire.send_pong(remote, echo)
 

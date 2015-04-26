@@ -235,7 +235,11 @@ class RLPxSession(object):
         assert not self.is_initiator
 
         self.auth_init = ciphertext
-        auth_message = self.ecc.ecies_decrypt(ciphertext)
+        try:
+            auth_message = self.ecc.ecies_decrypt(ciphertext)
+        except RuntimeError as e:
+            raise AuthenticationError(e)
+
         # S || H(ephemeral-pubk) || pubk || nonce || 0x[0|1]
         assert len(auth_message) == 65 + 32 + 64 + 32 + 1 == 194 == self.auth_message_length
         signature = auth_message[:65]

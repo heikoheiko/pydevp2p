@@ -1,6 +1,6 @@
 import logging
 try:
-    from pyethereum.slogging import get_logger, configure
+    from ethereum.slogging import get_logger, configure
 except ImportError:
     print 'could not import slogging'
     # patch logging to support kargs

@@ -461,6 +461,6 @@ def test_find_closest(num_nodes=50):
 
 
 if __name__ == '__main__':
-    import pyethereum.slogging
-    pyethereum.slogging.configure(config_string=':debug')
+    import ethereum.slogging
+    ethereum.slogging.configure(config_string=':debug')
     test_many()

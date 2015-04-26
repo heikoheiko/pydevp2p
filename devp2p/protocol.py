@@ -111,6 +111,7 @@ class BaseProtocol(gevent.Greenlet):
         "hint: implement peer_started notifcation of associated protocol here"
         assert isinstance(service, WiredService)
         assert callable(peer.send_packet)
+        self.is_stopped = False
         self.peer = peer
         self.service = service
         self._setup()
@@ -159,12 +160,17 @@ class BaseProtocol(gevent.Greenlet):
     def receive_packet(self, packet):
         cmd_name = self.cmd_by_id[packet.cmd_id]
         cmd = getattr(self, '_receive_' + cmd_name)
-        cmd(packet)
+        try:
+            cmd(packet)
+        except ProtocolError as e:
+            log.warn('protocol exception, stopping', error=e)
+            self.stop()
 
     def send_packet(self, packet):
         self.peer.send_packet(packet)
 
     def start(self):
+        log.debug('starting', proto=self)
         super(BaseProtocol, self).start()
         self.service.on_wire_protocol_start(self)
 
@@ -172,5 +178,7 @@ class BaseProtocol(gevent.Greenlet):
         pass
 
     def stop(self):
+        log.debug('stopping', proto=self)
+        self.is_stopped = True
         self.service.on_wire_protocol_stop(self)
         super(BaseProtocol, self).kill()

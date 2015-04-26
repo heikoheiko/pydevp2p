@@ -40,8 +40,6 @@ def test_address():
     assert len(b_a6[0]) == 16
     assert len(b_a4[0]) == 4
     assert isinstance(b_a6[1], str)
-    assert len(b_a6[1]) == 2
-    assert len(b_a4[1]) == 2
 
 
 #############################
@@ -57,11 +55,10 @@ class NodeDiscoveryMock(object):
     def __init__(self, host, port, seed):
         self.address = discovery.Address(host, port)
 
-        config = dict(p2p=dict())
-        config_p2p = config['p2p']
-        config_p2p['listen_host'] = host
-        config_p2p['listen_port'] = port
-        config_p2p['privkey_hex'] = crypto.sha3(seed).encode('hex')
+        config = dict(discovery=dict(), node=dict(privkey_hex=crypto.sha3(seed).encode('hex')))
+        config_discovery = config['discovery']
+        config_discovery['listen_host'] = host
+        config_discovery['listen_port'] = port
 
         app = AppMock()
         app.config = config
@@ -124,12 +121,11 @@ def test_ping_pong():
 # ############ test with real UDP ##################
 
 def get_app(port, seed):
-    config = dict(p2p=dict())
-    config_p2p = config['p2p']
-    config_p2p['listen_host'] = '127.0.0.1'
-    config_p2p['listen_port'] = port
-    config_p2p['privkey_hex'] = crypto.sha3(seed).encode('hex')
-    config_p2p['bootstrap_nodes'] = []
+    config = dict(discovery=dict(), node=dict(privkey_hex=crypto.sha3(seed).encode('hex')))
+    config_discovery = config['discovery']
+    config_discovery['listen_host'] = '127.0.0.1'
+    config_discovery['listen_port'] = port
+    config_discovery['bootstrap_nodes'] = []
     # create app
     app = BaseApp(config)
     discovery.NodeDiscovery.register_with_app(app)
@@ -208,8 +204,8 @@ def test_bootstrap_udp():
 def main():
     "test connecting nodes"
 
-    # exit on exception
-    gevent.get_hub().SYSTEM_ERROR += (ValueError, )
+    # stop on every unhandled exception!
+    gevent.get_hub().SYSTEM_ERROR = BaseException  # (KeyboardInterrupt, SystemExit, SystemError)
 
     app = get_app(30304, 'theapp')
     # app.config['p2p']['listen_host'] = '127.0.0.1'
@@ -247,7 +243,7 @@ def main():
     gevent.sleep(2.)
     print "TEST FIND_NODE"
     for i in range(10):
-        nodeid = random.randint(0, kademlia.k_max_node_id)
+        nodeid = kademlia.random_nodeid()
         assert isinstance(nodeid, type(this_node.id))
         proto.find_node(nodeid)
     gevent.sleep(1.)
@@ -272,8 +268,9 @@ def main():
 
 
 if __name__ == '__main__':
-    import pyethereum.slogging
-    pyethereum.slogging.configure(config_string=':debug')
+    import ethereum.slogging
+
+    ethereum.slogging.configure(config_string=':debug')
     main()
 
 

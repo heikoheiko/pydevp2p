@@ -10,7 +10,7 @@ http://www.cryptopp.com/wiki/Elliptic_Curve_Integrated_Encryption_Scheme
 https://en.wikipedia.org/wiki/Integrated_Encryption_Scheme
 """
 
-CIPHERNAMES = set(('aes-256-ctr', 'aes-128-ctr'))
+CIPHERNAMES = set(('aes-128-ctr',))
 
 import os
 import sys
@@ -27,11 +27,11 @@ else:
             import pyelliptic
             if CIPHERNAMES.issubset(set(pyelliptic.Cipher.get_all_cipher())):
                 break
-if not CIPHERNAMES.issubset(set(pyelliptic.Cipher.get_all_cipher())):
+if 'pyelliptic' not in dir() or not CIPHERNAMES.issubset(set(pyelliptic.Cipher.get_all_cipher())):
     print 'required ciphers %r not available in openssl library' % CIPHERNAMES
     if sys.platform == 'darwin':
-        print 'use homebrew to install newer openssl'
-        print '> brew install openssl'
+        print 'use homebrew or macports to install newer openssl'
+        print '> brew install openssl / > sudo port install openssl'
     sys.exit(1)
 
 import bitcoin
@@ -178,7 +178,8 @@ class ECCx(pyelliptic.ECC):
         [where R = r*G, and recipientPublic = recipientPrivate*G]
 
         """
-        assert data[0] == chr(0x04)
+        if data[0] != chr(0x04):
+            raise RuntimeError("wrong ecies header")
 
         #  1) generate shared-secret = kdf( ecdhAgree(myPrivKey, msg[1:65]) )
         _shared = data[1:1 + 64]
